@@ -1,0 +1,11 @@
+data/*.csv
+data/*.parquet
+data/*.meta.json
+reports/*.csv
+__pycache__/
+.venv/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# source brief — not part of the project
+*.docx
