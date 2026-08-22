@@ -1,0 +1,9 @@
+# Part 1 - data preparation & feature engineering
+pandas>=2.2,<3
+numpy>=1.26,<3
+pyarrow>=16
+matplotlib>=3.8
+jupyter>=1.0
+pytest>=8.0
+# Part 3 (already present in the base environment, pinned for reproducibility)
+scikit-learn>=1.4
