@@ -53,6 +53,7 @@ class DataQualityFlag(str, Enum):
     SIGNING_DATE_OUTSIDE_FY_WINDOW = "SIGNING_DATE_OUTSIDE_FY_WINDOW"
     SIGNING_DATE_AFTER_EXTRACT = "SIGNING_DATE_AFTER_EXTRACT"
     CONSORTIUM_MEMBER_ROW = "CONSORTIUM_MEMBER_ROW"
+    CONSORTIUM_SIZE_UNKNOWN = "CONSORTIUM_SIZE_UNKNOWN"
     MULTI_PRACTICE_PROJECT = "MULTI_PRACTICE_PROJECT"
     REVIEW_TYPE_MISSING = "REVIEW_TYPE_MISSING"
 
@@ -79,6 +80,7 @@ SEVERITY: dict[DataQualityFlag, Severity] = {
     DataQualityFlag.SIGNING_DATE_OUTSIDE_FY_WINDOW: Severity.NOTICE,
     DataQualityFlag.SIGNING_DATE_AFTER_EXTRACT: Severity.NOTICE,
     DataQualityFlag.CONSORTIUM_MEMBER_ROW: Severity.NOTICE,
+    DataQualityFlag.CONSORTIUM_SIZE_UNKNOWN: Severity.DEGRADED,
     DataQualityFlag.MULTI_PRACTICE_PROJECT: Severity.NOTICE,
     DataQualityFlag.REVIEW_TYPE_MISSING: Severity.NOTICE,
 }
@@ -106,6 +108,7 @@ DESCRIPTIONS: dict[DataQualityFlag, str] = {
     DataQualityFlag.SIGNING_DATE_OUTSIDE_FY_WINDOW: "Signing date falls outside its published fiscal year window.",
     DataQualityFlag.SIGNING_DATE_AFTER_EXTRACT: "Signing date is later than the extract's as-of date.",
     DataQualityFlag.CONSORTIUM_MEMBER_ROW: "One of several supplier rows sharing a contract number (joint venture).",
+    DataQualityFlag.CONSORTIUM_SIZE_UNKNOWN: "Number of suppliers on this contract was not supplied; it cannot be derived from a single record.",
     DataQualityFlag.MULTI_PRACTICE_PROJECT: "Project spans several global practices; the first listed was used as primary.",
     DataQualityFlag.REVIEW_TYPE_MISSING: "Prior/post review type is absent.",
 }

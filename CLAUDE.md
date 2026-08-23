@@ -9,17 +9,18 @@ A pipeline that classifies World Bank contract awards into review cohorts
 it matters. Every record is scored **as if at the moment the contract was signed**, using only
 information available at that point.
 
-Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, the risk
-model, and the anomaly check. Final cohort assignment is not built yet.
+All five stages are implemented: ingestion and cleaning, feature preparation, the deterministic rule
+engine, the risk model, the anomaly check, and final cohort assignment with an audit record.
 
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # 102 tests, ~70s
+pytest tests/ -q                                   # 120 tests, ~85s
 python3 tools/build_notebook.py                    # regenerate notebook 01
 python3 tools/build_rule_notebook.py               # regenerate notebook 02
 python3 tools/build_model_notebook.py              # regenerate notebook 03
 python3 tools/build_anomaly_notebook.py            # regenerate notebook 04
+python3 tools/build_cohort_notebook.py             # regenerate notebook 05
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -151,6 +152,25 @@ and the full feature set including amount and method is correct here. Do not "fi
 - Explanations take **at most one phrase per feature family** (`_FAMILY`), so a sentence names two
   different kinds of unusual. Pipeline internals like `benchmark_support_n` stay out of `_PHRASING`.
 - `apply_anomaly_override` only ever moves a cohort **up**.
+
+## Cohort assignment (`cohort.py`)
+
+`classify_contract(record, artefacts, timestamp)` is the only entry point downstream consumers use.
+
+- **The timestamp is a required argument.** Never call `datetime.now()` here. That single line is
+  what makes reproducibility testable, and `test_timestamp_is_injected_not_read_from_a_clock`
+  enforces it.
+- **Build the model/detector frame from `enriched.normalized`, not the raw record.** The raw record
+  carries the publisher's column names ("Region"); everything downstream expects snake_case. Feeding
+  raw names in leaves every categorical one-hot at zero and yields confident wrong scores — the same
+  failure that cost 13 points of AUC inside `model.py`.
+- **`ROUTINE` is only ever reached when every stage completed and none objected.** Any exception
+  resolves upward with a reason code. Do not add a code path that can reach ROUTINE on failure.
+- **Reason codes are tri-state and must not overclaim.** An unidentifiable supplier gets
+  `SUPPLIER_HISTORY_UNAVAILABLE`, never `SUPPLIER_HAS_NO_PRIOR_CONTRACTS`. Nothing may assert a prior
+  contract was "clean" — no outcome data exists in this dataset.
+- **Contract-group facts cannot be inferred from one row.** `consortium_size` returns `None` plus a
+  flag when unsupplied. Do not reinstate a default of 1.
 
 ## Conventions
 

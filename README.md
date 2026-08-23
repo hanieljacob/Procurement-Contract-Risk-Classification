@@ -13,8 +13,8 @@ where it adds the most value:
 Every record is scored **as if at the moment the contract was submitted**, using only information
 available at that point.
 
-**Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, the
-risk model, and the anomaly check.** Final cohort assignment builds on the interfaces below.
+**All five stages are implemented**: ingestion and cleaning, feature preparation, the deterministic
+rule engine, the risk model, the anomaly check, and final cohort assignment with an audit record.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ risk model, and the anomaly check.** Final cohort assignment builds on the inter
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest tests/ -q                                  # 102 tests, ~70s
+pytest tests/ -q                                  # 120 tests, ~85s
 jupyter lab notebooks/01_data_preparation.ipynb   # the analysis and reasoning
 ```
 
@@ -75,16 +75,19 @@ src/procurement_risk/
   rules.py      apply_rules(enriched) -> RuleOutcome
   model.py      build_target / train / score_record
   anomaly.py    fit_detector / describe / apply_anomaly_override
+  cohort.py     classify_contract(record, artefacts, timestamp)   <- single entry point
   summary.py    descriptive summary + the data-quality register
 notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
 notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
 notebooks/03_risk_model.ipynb        leakage analysis, models, thresholds
 notebooks/04_anomaly_detection.ipynb  out-of-distribution check + explanations
+notebooks/05_cohort_assignment.ipynb  audit record, reproducibility, safe default
 tools/build_notebook.py               regenerates notebook 01 (see note below)
 tools/build_rule_notebook.py          regenerates notebook 02
 tools/build_model_notebook.py         regenerates notebook 03
 tools/build_anomaly_notebook.py       regenerates notebook 04
-tests/                                102 tests
+tools/build_cohort_notebook.py        regenerates notebook 05
+tests/                                120 tests
 reports/data_quality_register.csv     generated
 ```
 
@@ -280,3 +283,42 @@ output caught it.
 Per the brief, a low-scoring but anomalous contract becomes `HIGH_ATTENTION`, never `ROUTINE`. The
 override only moves records **up** the precedence order. On the test years it promotes 1,991
 contracts whose high-attention rate is **2.5% against 0.7%** for low-risk records it does not flag.
+
+## Final cohort assignment
+
+`classify_contract(record, artefacts, timestamp)` is the single entry point: raw record in, complete
+audit record out.
+
+| Cohort | Contracts | Share |
+|---|---|---|
+| `NOT_ELIGIBLE` | 13 | 0.00% |
+| `EXCEPTIONAL` | 5,178 | 1.80% |
+| `HIGH_ATTENTION` | 117,909 | 40.91% |
+| `ROUTINE` | 165,137 | 57.29% |
+
+**HIGH_ATTENTION at 41% is the direct cost of the conservative threshold**, not an accident. Reaching
+90% recall on the risk model means flagging roughly 40% of the portfolio (see the risk-model section),
+and the brief is explicit that safe default behaviour matters more than maximising the routine share.
+A real deployment would negotiate that recall floor against reviewer capacity — the threshold is one
+constant, and the trade-off table in notebook 03 prices every alternative.
+
+**Reproducibility.** The classification timestamp is an injected argument, never read from a clock —
+a function calling `datetime.now()` cannot be tested for reproducibility. All five artefact versions
+are stamped on every record, because a decision is only reproducible against a *set* of artefacts:
+recording the model version while the benchmark table changed underneath would look reproducible
+without being so.
+
+**Safe default, tested by breaking things.** Asserting that failures resolve to `HIGH_ATTENTION` is
+easy; the test deliberately breaks the model and confirms that zero records reach `ROUTINE`.
+
+**Reason codes state what is known and never more.** The brief's example output includes
+`SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit `SUPPLIER_HAS_PRIOR_CONTRACTS` and drop *clean*
+deliberately: nothing in this extract establishes that any contract was clean — there are no
+findings, disputes or cancellations, only that contracts existed. Every code is tri-state, so an
+unidentifiable supplier yields `SUPPLIER_HISTORY_UNAVAILABLE`, never `SUPPLIER_HAS_NO_PRIOR_CONTRACTS`.
+
+**What one record cannot know.** `consortium_size` is a property of the contract, not of a supplier
+row. The first version defaulted it to 1, which was silently wrong for the 20,404 rows belonging to
+joint ventures — and the batch-versus-per-record check caught it, as it has four times before. It is
+now `None` with a flag. Supplied with contract-group context the two paths agree exactly (0
+disagreements in 600); without it, 8 in 600 resolve conservatively and say why.
