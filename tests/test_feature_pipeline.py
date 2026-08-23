@@ -19,6 +19,7 @@ import pytest
 from procurement_risk import config
 from procurement_risk.cleaning import (
     _is_missing,
+    normalize_country_code,
     classify_method,
     clean_frame,
     contract_grain,
@@ -245,6 +246,20 @@ def test_contract_grain_is_order_independent(synthetic):
 # ---------------------------------------------------------------------------
 # Normalisation
 # ---------------------------------------------------------------------------
+
+def test_country_codes_are_canonicalised_in_both_paths(synthetic_stats):
+    """Domesticity is an equality test, so casing must not decide it.
+
+    The published extract is clean on this field, but validate_and_enrich takes
+    raw upstream records where " ke" and "KE" are the same country. Without
+    canonicalisation a domestic supplier would be reported as foreign.
+    """
+    assert normalize_country_code(" ke ") == "KE"
+    assert normalize_country_code(None) is None
+    messy = _row(borrower_country_code=" in ", supplier_country_code="In")
+    res = validate_and_enrich(messy, synthetic_stats)
+    assert res.features["supplier_is_domestic"] is True
+
 
 def test_suffix_stripping_never_empties_a_real_name():
     """Regression: 4 real suppliers are made entirely of legal-suffix tokens.
