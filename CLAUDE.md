@@ -6,8 +6,13 @@ Guidance for working in this repo. Read before changing anything in `src/procure
 
 A pipeline that classifies World Bank contract awards into review cohorts
 (`NOT_ELIGIBLE` / `EXCEPTIONAL` / `HIGH_ATTENTION` / `ROUTINE`) so reviewer effort concentrates where
-it matters. Every record is scored **as if at the moment the contract was signed**, using only
-information available at that point.
+it matters. Every record is scored **as of its contract signing date**, using only information
+available at that point.
+
+The brief says "at the time the contract was submitted", which is earlier. There is no submission
+date in this extract, so signing is the anchor (`config.ASSESSMENT_ANCHOR`), and it is late by the
+submission-to-signature interval. Do not silently re-word this either way: the requirement and the
+implemented anchor are different things, and both belong in any description of the pipeline.
 
 All five stages are implemented: ingestion and cleaning, feature preparation, the deterministic rule
 engine, the risk model, the anomaly check, and final cohort assignment with an audit record.
@@ -16,11 +21,6 @@ engine, the risk model, the anomaly check, and final cohort assignment with an a
 
 ```bash
 pytest tests/ -q                                   # 120 tests, ~85s
-python3 tools/build_notebook.py                    # regenerate notebook 01
-python3 tools/build_rule_notebook.py               # regenerate notebook 02
-python3 tools/build_model_notebook.py              # regenerate notebook 03
-python3 tools/build_anomaly_notebook.py            # regenerate notebook 04
-python3 tools/build_cohort_notebook.py             # regenerate notebook 05
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -74,17 +74,28 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
   pandas `.map`, `pd.NA` from an Arrow-backed string column. Always use `cleaning._is_missing()`,
   never `is None`. Checking only for `None` once let `NaN` fall through and silently substitute the
   global median for a benchmark we did not have.
+- **`contract_grain()` is for VALUE statistics only.** Deduplicating is required for amounts (raw rows
+  overstate by $13.5B) and **wrong for participation**: the history store is currently built from the
+  collapsed table, so 11,086 joint-venture partner rows get no credit for contracts they won. See
+  `ASSUMPTIONS.md` §9.1. Before reusing it, ask whether deduplication is right for *that* statistic.
 - **Row grain vs contract grain.** 8,584 contract numbers span several supplier rows (joint ventures),
   most repeating the *full* amount on each. Reporting is per row; every population statistic must go
   through `cleaning.contract_grain()` first. Raw-row totals overstate value by ~12%.
 - **Procurement methods must be looked up via `config.method_lookup_key()`**, never by raw string.
   The source spells CQS with a double space; exact-string matching failed 15,956 records (5.5%) as
   "unmapped method".
+- **Supplier identity keys on the normalised NAME, not `Supplier ID`** — and the reason is
+  fragmentation, not that the ID is unreliable. `ERNST & YOUNG` appears under 39 different supplier
+  IDs and `CFAO MOTORS` under 34, so keying on ID would present an established firm as 39 first-time
+  suppliers into a rule that penalises exactly that. Name-merging affects 0.30% of IDs; ID-fragmenting
+  affects 7.35% of names. See `ASSUMPTIONS.md` §3.2.
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
-  history for these returns `None`, never `0`.
-- **Both notebooks are generated** — `tools/build_notebook.py` builds notebook 01,
-  `tools/build_rule_notebook.py` builds notebook 02 — and regenerating **overwrites Jupyter edits**.
-  Edit the builder or the notebook, not both.
+  history for these returns `None`, never `0`. Note this is currently *too* conservative: `Supplier
+  ID` identifies 6,474 of these individuals across projects, so a quarter of them have recoverable
+  history the pipeline reports as unknowable. See `ASSUMPTIONS.md` §9.2.
+- **The notebooks are the source of truth.** They were originally generated from build scripts, now
+  removed — edit them directly in Jupyter and re-run. If a narrative change touches a number quoted
+  in `README.md`, update both.
 
 ## Rule engine (`rules.py`)
 
@@ -182,7 +193,9 @@ and the full feature set including amount and method is correct here. Do not "fi
 - Comments explain **why**, not what. This codebase is read as much for its reasoning as its
   behaviour; a comment restating the line below it is noise.
 - Any new feature computed in batch must produce identical values to the single-record path. Assert
-  it — `test_scalar_and_batch_feature_paths_agree` is what caught three real defects.
+  it — `test_scalar_and_batch_feature_paths_agree` caught three of the seven defects found.
+- Every simplifying assumption belongs in `ASSUMPTIONS.md`, with its basis and what it would cost if
+  wrong. Adding one without recording it there breaks the contract that document represents.
 - Integration tests assert the specific reconciliation numbers quoted in `README.md`. If a number
   changes, update both, and check the change was intended.
 

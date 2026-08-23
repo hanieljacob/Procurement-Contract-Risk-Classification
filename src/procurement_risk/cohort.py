@@ -108,9 +108,9 @@ REASON_DESCRIPTIONS: dict[ReasonCode, str] = {
     ReasonCode.NON_COMPETITIVE_PROCUREMENT_METHOD:
         "Awarded without a competitive process.",
     ReasonCode.SUPPLIER_HAS_NO_PRIOR_CONTRACTS:
-        "No earlier contract for this supplier was observable at signing.",
+        "No earlier contract for this supplier had been signed before this one. Note the assessment anchor is the signing date; see config.ASSESSMENT_ANCHOR.",
     ReasonCode.FIRST_CONTRACT_IN_PROJECT:
-        "No earlier contract in this project was observable at signing.",
+        "No earlier contract in this project had been signed before this one.",
     ReasonCode.FOREIGN_SUPPLIER:
         "Supplier is registered outside the borrower country.",
     ReasonCode.ANOMALOUS_RELATIVE_TO_TRAINING:

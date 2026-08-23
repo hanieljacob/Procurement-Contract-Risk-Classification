@@ -10,8 +10,16 @@ where it adds the most value:
 | `HIGH_ATTENTION` | Elevated risk or anomalous — prioritised review |
 | `ROUTINE` | Standard, familiar pattern — reduced scrutiny plus periodic sampling |
 
-Every record is scored **as if at the moment the contract was submitted**, using only information
+Every record is scored **as of its contract signing date**, using only information
 available at that point.
+
+The brief asks for assessment *"at the time the contract was submitted"*, which is earlier — prior
+review happens before a contract is signed. That cannot be honoured literally here: **the extract
+contains no submission date.** The signing date is the only per-record time signal; `Fiscal Year` and
+`Contract signed - Calendar year` are both provably derived from it, and `As of Date` holds a single
+value for all 288,237 rows. So the anchor is late by the submission-to-signature interval, and the
+point-in-time guarantee is mildly optimistic. See "The assessment anchor" below for the measured size
+of that.
 
 **All five stages are implemented**: ingestion and cleaning, feature preparation, the deterministic
 rule engine, the risk model, the anomaly check, and final cohort assignment with an audit record.
@@ -62,9 +70,13 @@ The loader caches the parsed frame as Parquet next to the CSV, keyed on the sour
 mtime, so an updated extract invalidates the cache automatically. First load ~1.5s, subsequent
 loads ~0.2s. Delete `data/*.parquet` to force a re-parse.
 
+> Every simplifying assumption this pipeline makes — and what each would cost if wrong — is
+> documented in **[ASSUMPTIONS.md](ASSUMPTIONS.md)**.
+
 ## Layout
 
 ```
+ASSUMPTIONS.md                        every assumption, its basis, and its cost
 src/procurement_risk/
   config.py     frozen decisions: fiscal calendar, method taxonomy, thresholds, placeholders
   loading.py    CSV -> DataFrame with a fingerprinted Parquet cache
@@ -79,20 +91,12 @@ src/procurement_risk/
   summary.py    descriptive summary + the data-quality register
 notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
 notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
-notebooks/03_risk_model.ipynb        leakage analysis, models, thresholds
+notebooks/03_risk_model.ipynb         leakage analysis, models, thresholds
 notebooks/04_anomaly_detection.ipynb  out-of-distribution check + explanations
 notebooks/05_cohort_assignment.ipynb  audit record, reproducibility, safe default
-tools/build_notebook.py               regenerates notebook 01 (see note below)
-tools/build_rule_notebook.py          regenerates notebook 02
-tools/build_model_notebook.py         regenerates notebook 03
-tools/build_anomaly_notebook.py       regenerates notebook 04
-tools/build_cohort_notebook.py        regenerates notebook 05
 tests/                                120 tests
 reports/data_quality_register.csv     generated
 ```
-
-> `tools/build_notebook.py` regenerates `notebooks/01_data_preparation.ipynb` from scratch and
-> **overwrites any edits made in Jupyter**. Edit one or the other, not both.
 
 ## Design
 
@@ -113,7 +117,8 @@ signed up to three years later. Measured, the frozen median ran +3.3% against th
 FY2020 and −10.6% by FY2026 — look-ahead at one end of the timeline, staleness at the other.
 
 **One code path.** The batch table and the single-record call are asserted to produce identical
-values on all 15 features. Building that check is what surfaced three real defects (below).
+values on all 16 features. That check caught three of the seven defects listed below; the
+others came from the quality register, the requirements audit and the AUC sanity gate.
 
 ## Results
 
@@ -121,7 +126,7 @@ values on all 15 features. Building that check is what surfaced three real defec
 |---|---|
 | Records | 288,237 supplier-award rows / 276,417 distinct contracts |
 | Scoreable | 288,224 · **13** fail validation and become `NOT_ELIGIBLE` |
-| Features | 15, tri-state wherever a value can be unknowable |
+| Features | 16, tri-state wherever a value can be unknowable |
 | Benchmarks | 2,410 monthly vintages, versioned `v1.0` |
 | No benchmark | 2,706 FY2020 records too early for any peer history — reported, not imputed |
 
@@ -146,7 +151,8 @@ Findings that shaped the design:
    in FY2021 before recovering. No single fixed value could have served both ends of that, which is
    why the frozen design had to go.
 
-Four defects caught by asserting the batch and single-record paths agree on every feature:
+Seven defects found, by four different checks. Three came from asserting that the batch and
+single-record paths agree on every feature:
 
 - a `NaN`-vs-`None` gap that silently substituted the global median for a missing global practice;
 - a double space in `Consultant Qualification··Selection` that failed 15,956 records (5.5%) as
@@ -322,3 +328,27 @@ row. The first version defaulted it to 1, which was silently wrong for the 20,40
 joint ventures — and the batch-versus-per-record check caught it, as it has four times before. It is
 now `None` with a flag. Supplied with contract-group context the two paths agree exactly (0
 disagreements in 600); without it, 8 in 600 resolve conservatively and say why.
+
+## The assessment anchor
+
+Everything in this pipeline is anchored on the **contract signing date** (`config.ASSESSMENT_ANCHOR`).
+The brief asks for assessment at *submission*, which is earlier. The gap is real, unfixable from this
+data, and small but not zero — so it is stated rather than glossed.
+
+**Why signing:** there is no submission date in the extract. Of the four date-ish columns, `Fiscal
+Year` is exactly `year + (month >= 7)` of the signing date and `Contract signed - Calendar year` is
+exactly its year — both verified derived. `As of Date` is a single constant (`2026-08-22`), the
+publisher's snapshot; anchoring to it would score every contract as of Aug 2026, granting each record
+years of its own future. The brief itself treats signing date as the proxy, describing
+days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle"*.
+
+**Measured exposure**, if assessment truly precedes signing by 90 days:
+
+| | Extra information the signing anchor grants | Consequence |
+|---|---|---|
+| Benchmarks | median **597** extra peer contracts | Peer groups run to thousands, so the median moves only **1.2–1.8% per quarter** — immaterial, and finer than the monthly vintage granularity anyway |
+| Supplier history | **~1.2** extra prior contracts (mean) | Small in aggregate, decisive at the boundary: it can flip `is_first_contract_in_project` or `supplier_prior_contract_count == 0`, both of which feed an EXCEPTIONAL rule |
+
+`config.ASSESSMENT_LAG_DAYS` exists and is deliberately **0**. Shifting every as-of lookup earlier
+would conform to the brief's wording, but no lag value is supportable from this data — that would
+trade a stated assumption for an invented one.
