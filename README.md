@@ -70,9 +70,13 @@ The loader caches the parsed frame as Parquet next to the CSV, keyed on the sour
 mtime, so an updated extract invalidates the cache automatically. First load ~1.5s, subsequent
 loads ~0.2s. Delete `data/*.parquet` to force a re-parse.
 
+> Every simplifying assumption this pipeline makes — and what each would cost if wrong — is
+> documented in **[ASSUMPTIONS.md](ASSUMPTIONS.md)**.
+
 ## Layout
 
 ```
+ASSUMPTIONS.md                        every assumption, its basis, and its cost
 src/procurement_risk/
   config.py     frozen decisions: fiscal calendar, method taxonomy, thresholds, placeholders
   loading.py    CSV -> DataFrame with a fingerprinted Parquet cache
@@ -113,7 +117,8 @@ signed up to three years later. Measured, the frozen median ran +3.3% against th
 FY2020 and −10.6% by FY2026 — look-ahead at one end of the timeline, staleness at the other.
 
 **One code path.** The batch table and the single-record call are asserted to produce identical
-values on all 15 features. Building that check is what surfaced three real defects (below).
+values on all 16 features. That check caught three of the seven defects listed below; the
+others came from the quality register, the requirements audit and the AUC sanity gate.
 
 ## Results
 
@@ -121,7 +126,7 @@ values on all 15 features. Building that check is what surfaced three real defec
 |---|---|
 | Records | 288,237 supplier-award rows / 276,417 distinct contracts |
 | Scoreable | 288,224 · **13** fail validation and become `NOT_ELIGIBLE` |
-| Features | 15, tri-state wherever a value can be unknowable |
+| Features | 16, tri-state wherever a value can be unknowable |
 | Benchmarks | 2,410 monthly vintages, versioned `v1.0` |
 | No benchmark | 2,706 FY2020 records too early for any peer history — reported, not imputed |
 
@@ -146,7 +151,8 @@ Findings that shaped the design:
    in FY2021 before recovering. No single fixed value could have served both ends of that, which is
    why the frozen design had to go.
 
-Four defects caught by asserting the batch and single-record paths agree on every feature:
+Seven defects found, by four different checks. Three came from asserting that the batch and
+single-record paths agree on every feature:
 
 - a `NaN`-vs-`None` gap that silently substituted the global median for a missing global practice;
 - a double space in `Consultant Qualification··Selection` that failed 15,956 records (5.5%) as

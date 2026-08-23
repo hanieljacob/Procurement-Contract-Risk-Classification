@@ -182,7 +182,9 @@ and the full feature set including amount and method is correct here. Do not "fi
 - Comments explain **why**, not what. This codebase is read as much for its reasoning as its
   behaviour; a comment restating the line below it is noise.
 - Any new feature computed in batch must produce identical values to the single-record path. Assert
-  it — `test_scalar_and_batch_feature_paths_agree` is what caught three real defects.
+  it — `test_scalar_and_batch_feature_paths_agree` caught three of the seven defects found.
+- Every simplifying assumption belongs in `ASSUMPTIONS.md`, with its basis and what it would cost if
+  wrong. Adding one without recording it there breaks the contract that document represents.
 - Integration tests assert the specific reconciliation numbers quoted in `README.md`. If a number
   changes, update both, and check the change was intended.
 
