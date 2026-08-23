@@ -6,8 +6,13 @@ Guidance for working in this repo. Read before changing anything in `src/procure
 
 A pipeline that classifies World Bank contract awards into review cohorts
 (`NOT_ELIGIBLE` / `EXCEPTIONAL` / `HIGH_ATTENTION` / `ROUTINE`) so reviewer effort concentrates where
-it matters. Every record is scored **as if at the moment the contract was signed**, using only
-information available at that point.
+it matters. Every record is scored **as of its contract signing date**, using only information
+available at that point.
+
+The brief says "at the time the contract was submitted", which is earlier. There is no submission
+date in this extract, so signing is the anchor (`config.ASSESSMENT_ANCHOR`), and it is late by the
+submission-to-signature interval. Do not silently re-word this either way: the requirement and the
+implemented anchor are different things, and both belong in any description of the pipeline.
 
 All five stages are implemented: ingestion and cleaning, feature preparation, the deterministic rule
 engine, the risk model, the anomaly check, and final cohort assignment with an audit record.

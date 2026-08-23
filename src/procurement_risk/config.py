@@ -29,7 +29,47 @@ PIPELINE_VERSION: Final[str] = "v1.0"
 
 # The dataset is a point-in-time extract. Its "As of Date" is the moment the
 # publisher froze it; we treat it as the ceiling of observable information.
+# Note it is a single CONSTANT across all 288,237 rows, so it cannot anchor
+# anything per-record -- see ASSESSMENT_ANCHOR below.
 DATA_AS_OF_DATE: Final[str] = "2026-08-22"
+
+# --------------------------------------------------------------------------
+# The assessment anchor -- a stated assumption, not an oversight
+# --------------------------------------------------------------------------
+# Every record is scored as of its CONTRACT SIGNING DATE. Every population
+# statistic in the pipeline reads only what preceded that date.
+#
+# The brief asks for assessment "at the time the contract was submitted", which
+# is earlier: prior review happens BEFORE a contract is signed. We cannot honour
+# that literally, because this extract contains no submission date:
+#
+#   * "Contract Signing Date" is the only per-record time signal.
+#   * "Fiscal Year" is exactly year + (month >= 7) of the signing date, and
+#     "Contract signed - Calendar year" is exactly its year -- both verified,
+#     both derived, neither adds information.
+#   * "As of Date" holds one value for all 288,237 rows. Anchoring to it would
+#     score every contract as of Aug 2026, granting each record years of its own
+#     future -- the opposite of point-in-time.
+#
+# The brief itself uses the signing date as the proxy, describing
+# days-into-fiscal-year as "a proxy for submission timing within the fiscal
+# cycle". So the anchor is late by the submission-to-signature interval, which
+# makes the point-in-time guarantee mildly optimistic. Measured exposure, if
+# assessment truly precedes signing by 90 days:
+#
+#   * benchmarks: a median 597 extra peer contracts enter the vintage, but peer
+#     groups run to thousands, so the median itself moves only 1.2-1.8% per
+#     quarter -- immaterial, and coarser than the monthly vintage granularity.
+#   * supplier history: ~1.2 extra prior contracts on average. Small in
+#     aggregate but decisive at the boundary, where it can flip
+#     is_first_contract_in_project or supplier_prior_contract_count == 0, both
+#     of which feed an EXCEPTIONAL rule.
+#
+# Setting a non-zero lag here would shift every as-of lookup earlier. It is left
+# at zero deliberately: no value is supportable from this data, and guessing one
+# would trade a stated assumption for an invented one.
+ASSESSMENT_ANCHOR: Final[str] = "contract_signing_date"
+ASSESSMENT_LAG_DAYS: Final[int] = 0
 
 # --------------------------------------------------------------------------
 # World Bank fiscal calendar

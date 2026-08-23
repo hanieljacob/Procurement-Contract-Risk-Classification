@@ -28,6 +28,14 @@ cohort assignment — and unit-tested (`pytest tests/`, 38 tests).
 > Each record is scored **as if at the moment the contract was submitted**, using only
 > information available at that point.
 
+**A precision worth stating up front.** Submission precedes signing — prior review happens before a
+contract is signed — but **this extract contains no submission date**. The signing date is the only
+per-record time signal: `Fiscal Year` is exactly `year + (month >= 7)` of it, `Contract signed -
+Calendar year` is exactly its year, and `As of Date` is one constant across all 288,237 rows. So the
+pipeline anchors on the **signing date**, and the brief itself does the same when it describes
+days-into-fiscal-year as *"a proxy for submission timing"*. The anchor is therefore late by the
+submission-to-signature interval; Section 8 quantifies what that costs.
+
 Two things follow, and they are the spine of this notebook:
 
 - **Unknown is not zero.** A missing supplier history and a supplier with no history are different
@@ -569,6 +577,12 @@ md("""
    benchmark, and is the more conservative reading of point-in-time.
 
 ### Limitations, stated plainly
+- **The assessment anchor is the signing date, not submission.** The brief asks for assessment at
+  submission, which is earlier, but no submission date exists here. Measured at a hypothetical 90-day
+  lag: benchmarks would gain a median 597 peer contracts, moving the median only 1.2–1.8% per quarter
+  — immaterial. Supplier history would gain ~1.2 contracts on average, which is small in aggregate
+  but can flip `is_first_contract_in_project` at the boundary, and that feeds an EXCEPTIONAL rule.
+  `config.ASSESSMENT_LAG_DAYS` is deliberately 0: no lag value is supportable from this data.
 - **Publication lag is invisible to the pipeline.** Every statistic here filters on the *signing*
   date, but a contract signed earlier may have been *published* later — so at the true moment of
   assessment some of this "prior" history would not yet have been visible. Point-in-time correctness

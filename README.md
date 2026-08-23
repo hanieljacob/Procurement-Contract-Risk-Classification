@@ -10,8 +10,16 @@ where it adds the most value:
 | `HIGH_ATTENTION` | Elevated risk or anomalous — prioritised review |
 | `ROUTINE` | Standard, familiar pattern — reduced scrutiny plus periodic sampling |
 
-Every record is scored **as if at the moment the contract was submitted**, using only information
+Every record is scored **as of its contract signing date**, using only information
 available at that point.
+
+The brief asks for assessment *"at the time the contract was submitted"*, which is earlier — prior
+review happens before a contract is signed. That cannot be honoured literally here: **the extract
+contains no submission date.** The signing date is the only per-record time signal; `Fiscal Year` and
+`Contract signed - Calendar year` are both provably derived from it, and `As of Date` holds a single
+value for all 288,237 rows. So the anchor is late by the submission-to-signature interval, and the
+point-in-time guarantee is mildly optimistic. See "The assessment anchor" below for the measured size
+of that.
 
 **All five stages are implemented**: ingestion and cleaning, feature preparation, the deterministic
 rule engine, the risk model, the anomaly check, and final cohort assignment with an audit record.
@@ -322,3 +330,27 @@ row. The first version defaulted it to 1, which was silently wrong for the 20,40
 joint ventures — and the batch-versus-per-record check caught it, as it has four times before. It is
 now `None` with a flag. Supplied with contract-group context the two paths agree exactly (0
 disagreements in 600); without it, 8 in 600 resolve conservatively and say why.
+
+## The assessment anchor
+
+Everything in this pipeline is anchored on the **contract signing date** (`config.ASSESSMENT_ANCHOR`).
+The brief asks for assessment at *submission*, which is earlier. The gap is real, unfixable from this
+data, and small but not zero — so it is stated rather than glossed.
+
+**Why signing:** there is no submission date in the extract. Of the four date-ish columns, `Fiscal
+Year` is exactly `year + (month >= 7)` of the signing date and `Contract signed - Calendar year` is
+exactly its year — both verified derived. `As of Date` is a single constant (`2026-08-22`), the
+publisher's snapshot; anchoring to it would score every contract as of Aug 2026, granting each record
+years of its own future. The brief itself treats signing date as the proxy, describing
+days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle"*.
+
+**Measured exposure**, if assessment truly precedes signing by 90 days:
+
+| | Extra information the signing anchor grants | Consequence |
+|---|---|---|
+| Benchmarks | median **597** extra peer contracts | Peer groups run to thousands, so the median moves only **1.2–1.8% per quarter** — immaterial, and finer than the monthly vintage granularity anyway |
+| Supplier history | **~1.2** extra prior contracts (mean) | Small in aggregate, decisive at the boundary: it can flip `is_first_contract_in_project` or `supplier_prior_contract_count == 0`, both of which feed an EXCEPTIONAL rule |
+
+`config.ASSESSMENT_LAG_DAYS` exists and is deliberately **0**. Shifting every as-of lookup earlier
+would conform to the brief's wording, but no lag value is supportable from this data — that would
+trade a stated assumption for an invented one.

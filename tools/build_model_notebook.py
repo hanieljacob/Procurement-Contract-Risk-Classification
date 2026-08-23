@@ -67,9 +67,9 @@ compares a Latin American consultancy against Latin American consultancies, not 
 road works. An absolute dollar threshold would simply relabel the definition "is this a Works
 contract", which carries no information a reviewer does not already have.
 
-**It is observable at signing.** Both halves are known at the moment the review decision has to be
-made. A label that required waiting for an outcome would be useless for prior review, whatever its
-statistical merits.
+**It is observable when the decision has to be made.** Both halves are known at signing — and, being
+properties of the award itself rather than of its consequences, at submission too. A label that
+required waiting for an outcome would be useless for prior review, whatever its statistical merits.
 
 **It is auditable.** A borrower can be told exactly why their contract was routed for closer review,
 in one sentence, with the threshold named. That matters more for a fiduciary control than a marginal
