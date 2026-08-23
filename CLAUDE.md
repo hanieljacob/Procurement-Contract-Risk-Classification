@@ -21,11 +21,6 @@ engine, the risk model, the anomaly check, and final cohort assignment with an a
 
 ```bash
 pytest tests/ -q                                   # 120 tests, ~85s
-python3 tools/build_notebook.py                    # regenerate notebook 01
-python3 tools/build_rule_notebook.py               # regenerate notebook 02
-python3 tools/build_model_notebook.py              # regenerate notebook 03
-python3 tools/build_anomaly_notebook.py            # regenerate notebook 04
-python3 tools/build_cohort_notebook.py             # regenerate notebook 05
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -87,9 +82,9 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
   "unmapped method".
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
   history for these returns `None`, never `0`.
-- **Both notebooks are generated** — `tools/build_notebook.py` builds notebook 01,
-  `tools/build_rule_notebook.py` builds notebook 02 — and regenerating **overwrites Jupyter edits**.
-  Edit the builder or the notebook, not both.
+- **The notebooks are the source of truth.** They were originally generated from build scripts, now
+  removed — edit them directly in Jupyter and re-run. If a narrative change touches a number quoted
+  in `README.md`, update both.
 
 ## Rule engine (`rules.py`)
 

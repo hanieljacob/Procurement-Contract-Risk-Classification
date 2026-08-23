@@ -87,20 +87,12 @@ src/procurement_risk/
   summary.py    descriptive summary + the data-quality register
 notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
 notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
-notebooks/03_risk_model.ipynb        leakage analysis, models, thresholds
+notebooks/03_risk_model.ipynb         leakage analysis, models, thresholds
 notebooks/04_anomaly_detection.ipynb  out-of-distribution check + explanations
 notebooks/05_cohort_assignment.ipynb  audit record, reproducibility, safe default
-tools/build_notebook.py               regenerates notebook 01 (see note below)
-tools/build_rule_notebook.py          regenerates notebook 02
-tools/build_model_notebook.py         regenerates notebook 03
-tools/build_anomaly_notebook.py       regenerates notebook 04
-tools/build_cohort_notebook.py        regenerates notebook 05
 tests/                                120 tests
 reports/data_quality_register.csv     generated
 ```
-
-> `tools/build_notebook.py` regenerates `notebooks/01_data_preparation.ipynb` from scratch and
-> **overwrites any edits made in Jupyter**. Edit one or the other, not both.
 
 ## Design
 
