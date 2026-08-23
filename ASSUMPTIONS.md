@@ -64,16 +64,21 @@ position therefore runs through `cleaning.contract_grain()` first, while per-row
 grain because that is genuinely what the extract is.
 
 ### 2.3 The representative row for a contract is the alphabetically-first supplier
-**This one is imperfect and worth knowing.** In 6,859 of 8,584 joint ventures every row carries the
-identical full amount, so any representative is correct. But in **1,725 (20.1%)** the amounts differ —
-presumably each firm's actual share — and taking one row understates those contracts.
+The amount on a joint-venture row is the **contract's** value, not that supplier's share, so any row
+can represent the contract.
 
-Summing the shares instead would be wrong for the 79.9% that repeat the total, and **no field
-distinguishes the two cases**. The choice is deterministic (alphabetical, so it is stable across
-runs) and accepts a known understatement in a fifth of joint ventures rather than a known
-overstatement in four fifths.
+In 6,859 of 8,584 joint ventures every row carries an identical figure. In the remaining 1,725 they
+differ — but only barely: the ratio between the largest and smallest amount within a joint venture is
+**1.03 at the median, and below 1.05 in 99% of cases. Not one joint venture in the dataset has a
+ratio above 2.** Genuine shares split between three firms would differ by 2–3x. These differ by
+rounding, or by currency conversion applied slightly differently across rows.
 
----
+So there is no systematic understatement from picking one row. The choice is deterministic
+(alphabetical) so it is stable across runs, and that is all it needs to be.
+
+**An earlier version of this section inferred that the 20.1% represented each firm's actual share.**
+The data does not support that. The inference was made from the fact that the amounts differed,
+without checking by how much.
 
 ## 3. Fields and entities
 
