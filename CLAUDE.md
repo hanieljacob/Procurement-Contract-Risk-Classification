@@ -9,14 +9,15 @@ A pipeline that classifies World Bank contract awards into review cohorts
 it matters. Every record is scored **as if at the moment the contract was signed**, using only
 information available at that point.
 
-Implemented so far: ingestion, cleaning, feature preparation. The rule engine, risk model, anomaly
-check and cohort assignment are not built yet.
+Implemented so far: ingestion, cleaning, feature preparation, and the deterministic rule engine. The
+risk model, anomaly check and final cohort assignment are not built yet.
 
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # 38 tests, ~10s
-python3 tools/build_notebook.py                    # regenerate the notebook
+pytest tests/ -q                                   # 71 tests, ~45s
+python3 tools/build_notebook.py                    # regenerate notebook 01
+python3 tools/build_rule_notebook.py               # regenerate notebook 02
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -42,16 +43,27 @@ survives.
 no clock, no globals, no file reads — which is what makes the audit record reproducible. Keep it that
 way; if you need the current time, inject it.
 
-**Fit/transform split (`features.py`) — the load-bearing design decision.** Two kinds of population
-statistic, with different leakage properties:
+**Every population statistic is date-filtered (`features.py`) — the load-bearing rule.** A statistic
+may draw on all years *precisely because* it only ever reads what preceded the record being scored.
+There is no fitting window, and `config.TRAIN_FISCAL_YEARS` governs the model split only — never
+feature construction.
 
-- **Benchmark medians** have no date filter, so one computed over all years imports the future.
-  Fitted on `config.TRAIN_FISCAL_YEARS` only, frozen into a versioned `ReferenceStats` artefact.
-- **History counts** query with a date filter ("signed strictly before this record"). Their store
-  spans *every* year — restricting it to training years would not reduce leakage, it would just make
-  a FY2025 record wrongly look like a first-time supplier.
+- **Benchmarks** are monthly vintages: for each `(category, region, month)`, the median and a
+  101-point quantile sketch of every contract signed strictly before that month. Look them up with
+  the record's signing date; `benchmark_median(category, region, as_of)`.
+- **History counts** query the same way — "signed strictly before this record" — via
+  `PointInTimeCounter`.
 
-Reversing these two is the easy mistake and it silently breaks both the model and the audit trail.
+This was not the original design, and the reason matters. Benchmarks used to be fitted over
+FY2020–22 and frozen, so a contract signed in July 2019 was divided by a median containing contracts
+signed up to three years *later*. Measured: the frozen median ran +3.3% against the true as-of value
+in FY2020 and −10.6% by FY2026 — look-ahead at one end of the timeline, staleness at the other. If
+you are tempted to reintroduce a fitting window for a new statistic, that is the bug you are
+recreating.
+
+**Warm-up is a real outcome.** Early records have too little prior history for any benchmark
+(2,706 rows, all FY2020). They get `None` plus `REFERENCE_MEDIAN_UNAVAILABLE` — never a fallback
+guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
 
 ## Gotchas, each of which has already caused a real bug
 
@@ -67,8 +79,35 @@ Reversing these two is the easy mistake and it silently breaks both the model an
   "unmapped method".
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
   history for these returns `None`, never `0`.
-- **The notebook is generated** by `tools/build_notebook.py` and regenerating **overwrites Jupyter
-  edits**. Edit one or the other, not both.
+- **Both notebooks are generated** — `tools/build_notebook.py` builds notebook 01,
+  `tools/build_rule_notebook.py` builds notebook 02 — and regenerating **overwrites Jupyter edits**.
+  Edit the builder or the notebook, not both.
+
+## Rule engine (`rules.py`)
+
+`apply_rules(enriched) -> RuleOutcome` either **decides** a record or **defers** it. `cohort is None`
+means every rule was evaluable and none fired, so the record proceeds to the model — clearing the
+rules does not make it `ROUTINE`, and nothing here may assign `ROUTINE`.
+
+- **Predicates are three-valued**: `True` fired, `False` did not, `None` could not be evaluated
+  because a feature it depends on is unknown. Build conjunctions with `_kleene_and`, never with
+  `and` — `False AND unknown` must be `False`. Poisoning conjunctions with any unknown operand sent
+  9,666 records to a human on a rule that could not have fired anyway.
+- **`None` resolves upward** to `HIGH_ATTENTION`, and the audit record names which control was blind
+  via `UNEVALUABLE::<rule_id>` reason codes.
+- **`NOT_ELIGIBLE` is derived from the FATAL flags**, never restated as predicates. Two definitions
+  of the same rule will drift.
+- A new rule needs `condition`, `threshold`, `rationale` **and** `why_hard_rule` — the last being why
+  it is deterministic policy rather than something the model should infer. `test_every_rule_is_fully_documented`
+  enforces this.
+- **Thresholds are calibrated on reviewable volume**, targeting 1–2% EXCEPTIONAL, and
+  `test_exceptional_volume_stays_reviewable` fails outside 1–3%. The amount rule takes the form the
+  brief specifies — a *defined multiple* of the peer-group median — with the multiple as the
+  parameter (`EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE`, default 150×). The brief's illustrative 5× would
+  flag 20.9%; `config.py` carries the full volume-per-setting table. If you change any threshold,
+  re-run the calibration table in notebook 02 and update the figures in `README.md`.
+- Rules that cannot fire on this data stay in the registry with `active=False` rather than being
+  deleted, so the write-up can report a control with no coverage.
 
 ## Conventions
 

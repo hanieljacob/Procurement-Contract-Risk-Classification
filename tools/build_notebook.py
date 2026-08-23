@@ -239,58 +239,67 @@ deg[["fiscal_year","region","procurement_category","procurement_method_raw",
 """)
 
 md("""
-## 4. Feature engineering — what is fitted vs. what is queried
+## 4. Feature engineering — one rule: every statistic reads only the past
 
-This is the central design decision of the whole pipeline.
+This is the central design decision, and it is worth showing how it was got wrong first.
 
-Two kinds of population statistic feed the features, and **they leak differently**:
+Both features that compare a contract to its peers rely on a **population statistic**, and the
+original design split them into two classes:
 
 | | Benchmark medians | History counts |
 |---|---|---|
 | Example | "amount vs. median for this category and region" | "prior contracts from this supplier" |
 | Has a date filter? | **No** | **Yes** — count only what was signed strictly before |
-| Leakage risk | A median over all years is contaminated by contracts signed *after* the record | None: the date predicate does the work |
-| Therefore fitted on | **Training fiscal years only (FY2020–22), then frozen** | **All available years** |
+| Therefore fitted on | Training years (FY2020–22), then frozen | All available years |
 
-Restricting the *history* store to training years would not reduce leakage — it would simply make a
-FY2025 record wrongly look like a first-time supplier. Floating the *median* over all years would
-silently import the future. Getting these two backwards is the easy mistake, and it damages both the
-model and the audit trail.
+The reasoning for freezing was that a real review system publishes a benchmark table on a schedule
+rather than recomputing it per request. That is true of *deployment* — and wrong for scoring history.
+A contract signed in **July 2019** was being divided by a median built from contracts signed up to
+**June 2022**: three years of its own future.
 
-Freezing the benchmark also mirrors how a real review system works: a benchmark table is a versioned
-artefact refreshed on a schedule, not recomputed per request. That is what makes the guarantee
-"same input always returns the same output for a fixed model version" achievable at all. The cost —
-drift as the portfolio moves — is measured in Section 6 rather than asserted away.
+Measured against a correctly dated benchmark, the frozen median ran **+3.3%** in FY2020 and
+**−10.6%** by FY2026 — look-ahead at one end of the timeline, staleness at the other, moving up to
+2.6% of records across a threshold.
+
+**The fix collapses the two classes into one.** Benchmarks become **monthly vintages**: for each
+`(category, region, month)`, the median and a quantile sketch of everything signed *strictly before*
+that month. A benchmark may now draw on every year in the extract for exactly the reason the history
+counts always could — it can only read the past.
+
+> **The rule, entire:** a population statistic may use all years precisely because it only ever reads
+> what preceded the record being scored.
+
+The train/test split now governs the model alone, never feature construction. And "benchmark drift"
+stops being a limitation to disclose (Section 6.4): the benchmark tracks the portfolio by construction.
 """)
 
 code("""
-stats = build_reference_stats(clean)          # fit — FY2020-22 only for medians
+stats = build_reference_stats(clean)          # fit — vintages, no fitting window
 features = engineer_features(clean, stats)    # transform — pure w.r.t. stats
 
-print(f"benchmark window      : FY{stats.median_fiscal_years}")
-print(f"category x region cells: {len(stats.category_region_median)}")
-print(f"suppliers in history   : {len(stats.supplier_history):,}")
-print(f"projects in history    : {len(stats.project_history):,}")
-print(f"global median amount   : ${stats.global_median:,.0f}")
+print(f"benchmark vintages (category x region x month): {len(stats.category_region):,}")
+print(f"  category-level fallback vintages : {len(stats.category):,}")
+print(f"  overall fallback vintages        : {len(stats.overall):,}")
+print(f"suppliers in history : {len(stats.supplier_history):,}")
+print(f"projects in history  : {len(stats.project_history):,}")
 """)
 
 md("""
-### 4.1 Thin peer groups
+### 4.1 Thin peer groups, and the warm-up that has no benchmark at all
 
-Across the full extract, Category × Region cells range from **n=1** (Works × Other) to n=25,773.
-Within the FY2020–22 fitting window two cells still fall below the support threshold. A median over
-eight observations is not a benchmark. Below a support threshold of 30 the peer group widens up a ladder
-(category+region → category → global) and a `THIN_REFERENCE_GROUP` flag is raised. The support
-count `benchmark_support_n` travels with the feature so a downstream stage can discount a thin
-cell rather than trusting it blindly.
+A vintage needs history before it can exist. Below 30 prior contracts the peer group widens up a
+ladder (category+region → category → overall) and raises `THIN_REFERENCE_GROUP`; `benchmark_support_n`
+travels with the feature so a later stage can discount a thin cell rather than trusting it blindly.
+
+At the very start of the extract even the widest fallback has nothing to stand on. Those records
+carry **no benchmark** — `None` plus `REFERENCE_MEDIAN_UNAVAILABLE`, never a substituted value. This
+is the honest consequence of point-in-time scoring: in July 2019 there genuinely was no prior history
+to compare against, and saying so is more useful than inventing a number. The rule engine routes
+these to HIGH_ATTENTION rather than ROUTINE.
 """)
 
 code("""
-cr = pd.DataFrame({"n": pd.Series(stats.category_region_count),
-                   "median_usd": pd.Series(stats.category_region_median)})
-cr["below_support_threshold"] = cr.n < config.MIN_GROUP_SUPPORT
-print(f"cells below support threshold ({config.MIN_GROUP_SUPPORT}): {int(cr.below_support_threshold.sum())}")
-cr.sort_values("n").head(6)
+S.benchmark_vintage_coverage(features)
 """)
 
 md("""
@@ -400,9 +409,11 @@ axes[0].axvline(np.log10(amt.median()), color="#C44E52", ls="--",
 axes[0].legend(frameon=False)
 
 order = features.groupby("procurement_category")["amount_usd"].median().sort_values().index
-axes[1].boxplot([np.log10(features.loc[features.procurement_category==c, "amount_usd"].dropna()
-                          .pipe(lambda s: s[s>0])) for c in order],
-                labels=[c.replace(" ", "\\n") for c in order], showfliers=False)
+data = [np.log10(features.loc[features.procurement_category==c, "amount_usd"]
+                 .dropna().pipe(lambda s: s[s>0])) for c in order]
+axes[1].boxplot(data, showfliers=False)   # `labels=` was renamed in matplotlib 3.9
+axes[1].set_xticks(range(1, len(order)+1))
+axes[1].set_xticklabels([c.replace(" ", "\\n") for c in order])
 axes[1].set(ylabel="log10(amount USD)", title="Amount by procurement category")
 plt.tight_layout(); plt.show()
 """)
@@ -446,16 +457,21 @@ S.fiscal_year_coverage(features)
 """)
 
 md("""
-### 6.4 Benchmark drift — the cost of freezing
+### 6.4 How much the benchmark moves — and why freezing it was untenable
 
-Freezing medians on FY2020–22 buys reproducibility and removes look-ahead bias. It costs accuracy as
-the portfolio moves. Quantified rather than asserted, so the refresh cadence can be an evidence-based
-decision. Drift within roughly ±25% is tolerable for a *relative* risk benchmark; beyond that the
-artefact should be re-fitted and its version bumped.
+Under the frozen design this table measured a *cost*: how far a fixed FY2020–22 median had drifted
+from reality, reaching **+89% for Goods by FY2026**. With monthly vintages the same movement is
+simply what the benchmark does — it follows the portfolio.
+
+The magnitudes are kept because they are the evidence that freezing could not have held. The Works
+median falls from $149,585 to $70,318 — less than half — while Non-consulting Services swings 2.9x,
+dropping to $5,819 in FY2021 before recovering to $15,344. Goods and Consultant Services move only
+~1.2x. A single frozen value would have been roughly right for two categories and badly wrong for
+the other two, in opposite directions.
 """)
 
 code("""
-S.benchmark_drift(clean)
+S.benchmark_vintage_trend(stats)
 """)
 
 md("""
@@ -495,8 +511,9 @@ Guarantees:
 
 - **Never imputes a required field.** A missing amount fails the record; it does not become a median.
 - **Degrades precisely.** An optional-field problem nulls exactly one feature and flags it.
-- **Pure.** No clock, no globals, no file reads — only the record and the frozen `ReferenceStats`.
-  This is what makes the audit record reproducible.
+- **Pure.** No clock, no globals, no file reads — only the record and the versioned `ReferenceStats`.
+  The signing date selects the benchmark vintage, so the same record always resolves to the same
+  benchmark. This is what makes the audit record reproducible.
 - **One code path.** The batch table and the per-record call are verified to agree on all 15
   features (test: `test_scalar_and_batch_feature_paths_agree`). Building this check is what surfaced
   two real defects — a `NaN`-vs-`None` gap that silently substituted the global median for a missing
@@ -546,13 +563,21 @@ md("""
 4. **`Individual Consultant Selection` is competitive** (≥3 CVs compared under WB rules) even though
    its supplier field is a placeholder. The two facts are recorded independently so a rule can act
    on either.
-5. **Benchmarks frozen on FY2020–22** and treated as a versioned artefact.
+5. **Benchmarks are monthly vintages**, not daily. A contract is compared against the peer-group
+   median as it stood at the start of its signing month, so it is never compared against anything
+   signed in its own month. Monthly matches how a control function actually consumes a published
+   benchmark, and is the more conservative reading of point-in-time.
 
 ### Limitations, stated plainly
-- **Publication lag is invisible to the pipeline.** History features count what was *signed* before a
-  record, but a contract signed earlier may have been *published* later. Point-in-time correctness is
-  therefore an upper bound on true information availability. Correcting for it would need a
-  publication-date column the extract does not provide.
+- **Publication lag is invisible to the pipeline.** Every statistic here filters on the *signing*
+  date, but a contract signed earlier may have been *published* later — so at the true moment of
+  assessment some of this "prior" history would not yet have been visible. Point-in-time correctness
+  is therefore an upper bound on real information availability, and correcting it would need a
+  publication-date column the extract does not provide. This is now the only remaining look-ahead in
+  the pipeline, and unlike the benchmark defect it cannot be fixed from this data.
+- **2,706 records (FY2020) have no benchmark at all** and cannot be compared to peers. They are not a
+  random sample — they are the earliest contracts in the extract. Any statistic computed over
+  benchmarked records only is conditioned on that.
 - **22% of records have no usable supplier history**, and they are not a random 22% — they are
   entirely individual-consultant awards. Any feature importance the model assigns to supplier
   history is conditioned on a non-random subpopulation.
@@ -565,7 +590,8 @@ md("""
 
 ### Handed downstream
 - `features` — 288,237 rows, 15 model-ready features plus cleaned fields.
-- `stats` — the frozen `ReferenceStats` artefact (`v1.0`, benchmarks FY2020–22).
+- `stats` — the versioned `ReferenceStats` artefact (`v1.0`): 2,410 benchmark vintages plus the
+  supplier and project history stores.
 - `validate_and_enrich` — the per-record entry point.
 - The `DataQualityFlag` vocabulary — **FATAL flags are the `NOT_ELIGIBLE` rules**, already computed
   and reconciled (13 records).

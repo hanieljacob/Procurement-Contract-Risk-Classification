@@ -32,6 +32,7 @@ from procurement_risk.cleaning import (
 )
 from procurement_risk.features import (
     FEATURE_COLUMNS,
+    month_key,
     PointInTimeCounter,
     build_reference_stats,
     engineer_features,
@@ -75,16 +76,27 @@ def _row(**kw):
 
 @pytest.fixture(scope="module")
 def synthetic():
+    """Contracts spread over six months BEFORE the default record date.
+
+    Benchmarks are monthly vintages built from strictly-prior contracts, so a
+    fixture where every row shares one signing date would have no history to
+    build a benchmark from -- and the tests would be exercising the warm-up
+    path while appearing to test the normal one.
+    """
     rows = []
-    for i in range(60):  # enough to clear MIN_GROUP_SUPPORT
-        rows.append(_row(contract_id=100 + i, amount_usd=10_000.0 * (i + 1),
+    for i in range(60):  # enough to clear MIN_GROUP_SUPPORT before 2021-01
+        month = 7 + (i % 6)  # Jul..Dec 2020
+        rows.append(_row(contract_id=100 + i,
+                         signing_date_raw=f"{month:02d}/10/2020",
+                         fiscal_year_published=2021,
+                         amount_usd=10_000.0 * (i + 1),
                          supplier_name_raw=f"SUPPLIER {i}", supplier_id=f"S{i}"))
     return clean_frame(pd.DataFrame(rows))
 
 
 @pytest.fixture(scope="module")
 def synthetic_stats(synthetic):
-    return build_reference_stats(synthetic, median_fiscal_years=(2021,))
+    return build_reference_stats(synthetic)
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +225,53 @@ def test_counter_returns_none_for_unresolvable_key():
     assert c.count_before(pd.NA, date(2021, 5, 1)) is None
     assert c.count_before("A", None) is None
     assert c.count_before("NEVER SEEN", date(2021, 5, 1)) == 0, "known key, genuine zero"
+
+
+def test_benchmark_vintage_never_contains_its_own_future(real):
+    """The leak-proof property, tested rather than assumed.
+
+    Each vintage cell must be derivable from contracts signed strictly before
+    its own month. This previously failed by construction: benchmarks were
+    fitted over FY2020-22 and applied to FY2020 records, so a July 2019
+    contract was divided by a median containing up to three years of its future.
+    """
+    clean, stats, _ = real
+    grain = contract_grain(clean)
+    grain = grain[(grain["amount_usd"] > 0) & grain["signing_date"].notna()].copy()
+    grain["m"] = [month_key(d.date()) for d in grain["signing_date"]]
+
+    rng = np.random.default_rng(0)
+    keys = list(stats.category_region)
+    for idx in rng.choice(len(keys), 40, replace=False):
+        cat, reg, m = keys[idx]
+        peer = grain[(grain["procurement_category"] == cat) & (grain["region"] == reg)]
+        prior = peer.loc[peer["m"] < m, "amount_usd"]
+        cell = stats.category_region[(cat, reg, m)]
+        assert cell.support_n == len(prior), "vintage counted a contract from its own month or later"
+        assert np.isclose(cell.median, np.median(prior))
+
+
+def test_warmup_records_get_no_benchmark_rather_than_a_guess(real):
+    """Too early to have a peer history is 'unknown', not a fallback guess."""
+    clean, stats, fe = real
+    warmup = fe[fe["benchmark_median"].isna()]
+    assert len(warmup) > 0
+    # Only the very start of the extract can lack any benchmark at all.
+    assert set(warmup["fiscal_year"].unique()) == {2020}
+    res = validate_and_enrich(warmup.iloc[0].to_dict(), stats)
+    assert res.features["amount_vs_category_region_median"] is None
+    assert res.features["amount_percentile_in_category_region"] is None
+    assert F.REFERENCE_MEDIAN_UNAVAILABLE.value in res.data_quality_flags
+
+
+def test_benchmark_moves_with_the_portfolio(real):
+    """A vintage table tracks drift instead of documenting it as a limitation."""
+    _, stats, _ = real
+    cells = [(m, c.median) for (cat, reg, m), c in stats.category_region.items()
+             if cat == "Goods" and reg == "Eastern and Southern Africa"]
+    cells.sort()
+    assert len(cells) > 24
+    assert cells[0][1] != cells[-1][1], "benchmark identical across 7 years is a frozen benchmark"
 
 
 def test_no_future_leakage_in_supplier_history(synthetic_stats):

@@ -278,6 +278,14 @@ def clean_frame(df: pd.DataFrame) -> pd.DataFrame:
     out["supplier_is_domestic"] = pd.Series(same, index=out.index, dtype="boolean")
     out.loc[undecidable, "supplier_is_domestic"] = pd.NA
 
+    # Tri-state: None when the supplier country is unknown, because "we cannot
+    # tell where this supplier is registered" is not the same claim as "this
+    # supplier is registered somewhere transparent".
+    out["supplier_in_secrecy_jurisdiction"] = pd.Series(
+        out["supplier_country"].isin(config.SECRECY_JURISDICTIONS), index=out.index
+    ).astype("boolean")
+    out.loc[out["supplier_country"].isna(), "supplier_in_secrecy_jurisdiction"] = pd.NA
+
     # Consortium / joint-venture structure. 8,584 contract numbers carry more
     # than one supplier row and most repeat the FULL contract amount on each
     # row, so any statistic computed on raw rows double-counts money.

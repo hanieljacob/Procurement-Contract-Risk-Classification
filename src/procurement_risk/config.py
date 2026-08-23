@@ -259,29 +259,130 @@ REGIONAL_BORROWER_MARKERS: Final[tuple[str, ...]] = (
 # --------------------------------------------------------------------------
 # Reference-statistic thresholds
 # --------------------------------------------------------------------------
-# Category x Region cells range from n=1 (Works x Other) to n=25,773. A median
-# over a single observation is not a median. Below MIN_GROUP_SUPPORT we fall
-# back up a ladder (category+region -> category -> global) and always emit the
-# support count so downstream stages can discount a thin cell.
+# Minimum prior contracts before a peer group is allowed to be a benchmark.
+# Category x Region cells range from n=1 (Works x Other) to n=25,773, and a
+# median over a single observation is not a median. Below this we climb a
+# ladder (category+region -> category -> overall) and always emit the support
+# count so downstream stages can discount a thin cell. If even the overall
+# vintage is short -- which happens only at the very start of the extract --
+# the benchmark is None, never a guess.
 
 MIN_GROUP_SUPPORT: Final[int] = 30
+
+# Benchmarks are published as MONTHLY vintages: the peer-group median of every
+# contract signed strictly before that month. Monthly rather than daily because
+# a real control function consumes a periodically published benchmark table,
+# and because it is the more conservative reading of point-in-time -- a contract
+# is never compared against anything signed in its own month. Coarser than
+# monthly would let a benchmark lag the portfolio; finer would imply a
+# refresh cadence no procurement function actually operates.
+
+BENCHMARK_VINTAGE_GRANULARITY: Final[str] = "month"
 
 # Guard for the ratio denominator. A median of exactly 0 would make the ratio
 # infinite; we flag instead of dividing.
 MIN_MEDIAN_DENOMINATOR: Final[float] = 1.0
 
 # --------------------------------------------------------------------------
-# Time-based split (defined here, consumed by the risk model)
+# Time-based split (defined here, consumed ONLY by the risk model)
 # --------------------------------------------------------------------------
+# These windows govern model training and evaluation and nothing else. They do
+# NOT restrict any feature: every population statistic is date-filtered and so
+# may draw on all years without look-ahead. An earlier design fitted benchmarks
+# over TRAIN_FISCAL_YEARS and froze them, which meant a FY2020 record was scored
+# against a median containing its own future. Benchmark vintages removed that,
+# and with it the need for feature construction to know about the split at all.
+#
 # The intended design is FY2020-2022 for training, FY2023 for validation, and
 # the most recent available fiscal year for the final test. The most recent FY
-# in this extract is FY2027, which
-# has only 1,170 rows (vs ~45,000 typical) because the extract was frozen seven
-# weeks into it, and its prior-review share is 17.3% vs the ~7% norm. Testing on
-# it would measure reporting lag, not model skill. We therefore reserve FY2027
-# as an explicitly-labelled holdout and use FY2024-2026 as the test window.
+# in this extract is FY2027, which has only 1,170 rows (vs ~45,000 typical)
+# because the extract was frozen seven weeks into it, and its prior-review share
+# is 17.3% vs the ~7% norm. Testing on it would measure reporting lag, not model
+# skill. We therefore reserve FY2027 as an explicitly-labelled holdout and use
+# FY2024-2026 as the test window.
 
 TRAIN_FISCAL_YEARS: Final[tuple[int, ...]] = (2020, 2021, 2022)
 VALIDATION_FISCAL_YEARS: Final[tuple[int, ...]] = (2023,)
 TEST_FISCAL_YEARS: Final[tuple[int, ...]] = (2024, 2025, 2026)
 TRUNCATED_FISCAL_YEARS: Final[tuple[int, ...]] = (2027,)
+
+
+# --------------------------------------------------------------------------
+# Rule engine thresholds
+# --------------------------------------------------------------------------
+# Calibrated to a volume a senior reviewer could actually action. The brief
+# offers "more than five times the regional and category median" as an example.
+# Measured on this extract that flags 59,922 contracts -- 20.8% of the portfolio
+# -- because the amount distribution is heavy-tailed enough that 5x the median
+# sits at only the 78th percentile. A control routing a fifth of the portfolio
+# to senior review is not a control, so the thresholds below are set on
+# reviewable volume instead, and the 5x baseline is reported alongside them.
+#
+# Together these produce 4,750 EXCEPTIONAL records (1.65%), holding between
+# 1.43% and 2.24% in every fiscal year -- roughly 680 contracts a year.
+
+# Amount extremity, expressed as a multiple of the peer-group median exactly as
+# the brief describes: "contract amount above a defined multiple of the regional
+# and category median, for example more than five times the median."
+#
+# Five is the brief's illustration, not its requirement -- the requirement is a
+# *defined* multiple. Defined here at 150x, on this evidence:
+#
+#     multiple   EXCEPTIONAL total   per year
+#          5x     60,101  (20.86%)      8,585   <- the brief's example
+#         10x     37,090  (12.87%)      5,298
+#         25x     18,598  ( 6.45%)      2,656
+#         50x     10,930  ( 3.79%)      1,561
+#        100x      6,629  ( 2.30%)        947
+#        150x      5,178  ( 1.80%)        739   <- adopted
+#
+# At 5x this control would route a fifth of the entire portfolio to senior
+# review -- 8,585 contracts a year, which is not a priority queue, it is a second
+# inbox. The cause is the shape of the distribution rather than anything wrong
+# with the rule: amounts are heavy-tailed enough that 5x the median sits at only
+# the 78th percentile.
+#
+# Change this value and the EXCEPTIONAL volume moves with it; the table above is
+# the record of what each setting costs a review function.
+EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE: Final[float] = 150.0
+
+# Non-competitive award above this value. Direct selection is lawful and often
+# appropriate; it is the combination with scale that warrants a named reviewer.
+EXCEPTIONAL_NON_COMPETITIVE_AMOUNT: Final[float] = 2_000_000.0
+
+# A project's first contract sets precedent for everything that follows it, so
+# an outsized first award is worth confirming before the pattern is repeated.
+EXCEPTIONAL_FIRST_CONTRACT_RATIO: Final[float] = 20.0
+
+# Retained for completeness and reported as INACTIVE. The publisher derives
+# Fiscal Year from the signing date, so no record in this extract can fall
+# outside its own window and this rule cannot fire. It is kept as a guard for
+# unvalidated upstream data rather than deleted, because deleting it would hide
+# the fact that the control has no coverage here.
+EXCEPTIONAL_FY_WINDOW_DAYS: Final[int] = 0
+
+# Jurisdictions whose corporate registries provide little or no beneficial
+# ownership transparency. Assembled from the Tax Justice Network Financial
+# Secrecy Index (2022) and the EU list of non-cooperative jurisdictions.
+#
+# JUDGMENT CALL: this is used ONLY in combination with the supplier being
+# foreign to the borrower. A blanket "supplier from a high-risk country" rule --
+# which the brief offers as an option -- is incoherent on this dataset: the
+# borrowers are themselves overwhelmingly developing economies, so a
+# transparency-index cutoff would flag enormous volumes and would encode
+# geography rather than conduct. Measured, 1,360 contracts have suppliers
+# registered in these jurisdictions, but most are DOMESTIC -- Belize, Panama and
+# the Marshall Islands are borrowers in their own right. Only 329 are both
+# offshore-registered and foreign to the borrower, which is the pattern actually
+# worth a reviewer's time: value leaving a project through a vehicle whose
+# ownership cannot be established.
+#
+# A production deployment should replace this with an official list on a
+# maintained refresh cycle; the vintage is stated so the artefact can be aged.
+SECRECY_JURISDICTIONS: Final[frozenset[str]] = frozenset({
+    "Bahamas", "Barbados", "Belize", "Bermuda", "British Virgin Islands",
+    "Virgin Islands, British", "Cayman Islands", "Cyprus", "Gibraltar",
+    "Guernsey", "Isle of Man", "Jersey", "Liechtenstein", "Luxembourg",
+    "Malta", "Marshall Islands", "Mauritius", "Monaco", "Panama", "Seychelles",
+})
+SECRECY_JURISDICTIONS_VINTAGE: Final[str] = "TJN FSI 2022 / EU non-cooperative list"
