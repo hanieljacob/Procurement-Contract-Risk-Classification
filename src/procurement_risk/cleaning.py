@@ -60,6 +60,19 @@ def normalize_text(value) -> str | None:
     return s or None
 
 
+def normalize_country_code(value) -> str | None:
+    """Canonicalise an ISO country code: trimmed, upper-cased, or None.
+
+    The published extract happens to be clean on this field, but
+    `validate_and_enrich` is meant to accept raw records from upstream systems
+    where " ke" and "KE" are the same country. Domesticity is decided by an
+    equality test between two codes, so any casing or whitespace difference
+    would silently report a domestic supplier as foreign.
+    """
+    s = normalize_text(value)
+    return s.upper() if s is not None else None
+
+
 def normalize_supplier_name(value) -> str | None:
     """Uppercase, de-punctuate, and strip trailing legal suffixes.
 
@@ -210,6 +223,9 @@ def clean_frame(df: pd.DataFrame) -> pd.DataFrame:
     for col in ("region", "borrower_country", "supplier_country", "project_id",
                 "procurement_category", "review_type", "supplier_id"):
         out[col] = out[col].map(normalize_text)
+
+    for col in ("borrower_country_code", "supplier_country_code"):
+        out[col] = out[col].map(normalize_country_code)
 
     out["supplier_name"] = out["supplier_name_raw"].map(normalize_supplier_name)
     out["supplier_is_placeholder"] = out["supplier_name"].map(is_placeholder_supplier)

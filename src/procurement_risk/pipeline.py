@@ -32,6 +32,7 @@ from .cleaning import (
     days_into_fiscal_year,
     fiscal_year_of,
     is_regional_borrower,
+    normalize_country_code,
     normalize_text,
     parse_signing_date,
     primary_global_practice,
@@ -170,8 +171,8 @@ def validate_and_enrich(
     norm["fiscal_year"] = fiscal_year
 
     # ---- supplier domesticity: tri-state --------------------------------
-    borrower_code = normalize_text(_get(record, "borrower_country_code"))
-    supplier_code = normalize_text(_get(record, "supplier_country_code"))
+    borrower_code = normalize_country_code(_get(record, "borrower_country_code"))
+    supplier_code = normalize_country_code(_get(record, "supplier_country_code"))
     regional = is_regional_borrower(borrower_country, borrower_code)
     if regional:
         flags.append(F.BORROWER_IS_REGIONAL)
