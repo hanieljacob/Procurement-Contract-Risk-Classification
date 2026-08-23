@@ -9,16 +9,17 @@ A pipeline that classifies World Bank contract awards into review cohorts
 it matters. Every record is scored **as if at the moment the contract was signed**, using only
 information available at that point.
 
-Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, and the
-risk model. The anomaly check and final cohort assignment are not built yet.
+Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, the risk
+model, and the anomaly check. Final cohort assignment is not built yet.
 
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # 88 tests, ~60s
+pytest tests/ -q                                   # 102 tests, ~70s
 python3 tools/build_notebook.py                    # regenerate notebook 01
 python3 tools/build_rule_notebook.py               # regenerate notebook 02
 python3 tools/build_model_notebook.py              # regenerate notebook 03
+python3 tools/build_anomaly_notebook.py            # regenerate notebook 04
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -132,6 +133,24 @@ the procurement method. If yes it is leakage, whatever its name suggests.
   13 points of AUC while still returning plausible scores — `test_scoring_uses_source_columns_not_design_columns`
   guards it.
 - Thresholds are chosen on the **validation year only** and applied unchanged to test.
+
+## Anomaly check (`anomaly.py`)
+
+Unsupervised, so **the model's leakage discipline does not apply** — there is no label to leak into,
+and the full feature set including amount and method is correct here. Do not "fix" it by copying
+`LABEL_DEFINING_FEATURES` across.
+
+- Fitted on **training years only**: "unusual relative to the training population" needs that
+  population to predate what it judges.
+- **Explanations are templated and deterministic.** Never generate them. An audit record needs the
+  same contract to yield the same sentence years later, traceable to the feature values behind it.
+- **Percentiles must use the midpoint of the tied range.** `np.searchsorted` defaults to
+  `side="left"`, which counts values strictly less than the input, so a value shared by most of the
+  population reads as maximally extreme. This shipped once and made "a single-supplier award" the
+  headline reason on nearly every flagged record.
+- Explanations take **at most one phrase per feature family** (`_FAMILY`), so a sentence names two
+  different kinds of unusual. Pipeline internals like `benchmark_support_n` stay out of `_PHRASING`.
+- `apply_anomaly_override` only ever moves a cohort **up**.
 
 ## Conventions
 
