@@ -158,19 +158,21 @@ exceptional*, and `ROUTINE` is a verdict only the model gets to draw.
 | Outcome | Contracts | Share |
 |---|---|---|
 | `NOT_ELIGIBLE` | 13 | 0.00% |
-| `EXCEPTIONAL` | 4,750 | 1.65% |
+| `EXCEPTIONAL` | 5,178 | 1.80% |
 | `HIGH_ATTENTION` (safe default) | 2,762 | 0.96% |
-| Deferred to the model | 280,712 | 97.39% |
+| Deferred to the model | 280,284 | 97.24% |
 
 `NOT_ELIGIBLE` needs no new logic — the brief's not-eligible conditions *are* the ten FATAL
 data-quality flags the validator already raises, so the engine reads them rather than restating them
 as predicates free to drift.
 
-**The brief's example threshold does not survive measurement.** It suggests flagging contracts above
-five times the category-and-region median; that flags **20.8% of this portfolio**, because amounts
-are heavy-tailed enough that 5× the median is only the 78th percentile. Amount extremity is therefore
-expressed as a **percentile of the peer group**, which is directly volume-controllable. All four
-active rules together produce 1.65%, holding between 1.4% and 2.2% in every complete fiscal year.
+**The multiple is the parameter.** The brief asks for contracts above *"a defined multiple of the
+regional and category median, for example more than five times"* — five being the illustration, not
+the requirement. Defining it is the judgment work: at 5× the control flags **20.9% of the portfolio**,
+about 8,585 contracts a year, because amounts are heavy-tailed enough that 5× the median is only the
+78th percentile. Defined at **150×** (`config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE`), it yields ~739 a
+year. All four active rules together produce 1.80%, holding between 1.6% and 2.2% in every complete
+fiscal year. The full volume-per-setting table is in `config.py` and notebook 02.
 
 **Country risk is deliberately narrow.** A blanket transparency-index rule would encode geography
 rather than conduct and is incoherent when the borrowers are themselves developing economies. Of
@@ -189,6 +191,6 @@ missing, on a rule that could not have fired anyway. `False AND unknown` is `Fal
 means resolving genuine ambiguity upward, not manufacturing ambiguity the data has already settled.
 
 **Limitation.** Thresholds are calibrated on *volume*, not outcomes. This extract contains no
-realised fraud, dispute or cancellation label, so there is no way to measure whether the 4,750
+realised fraud, dispute or cancellation label, so there is no way to measure whether the 5,178
 flagged contracts are the right ones. The calibration guarantees an actionable queue and explicit
 reasoning; it cannot guarantee precision, and no threshold chosen from this data could.

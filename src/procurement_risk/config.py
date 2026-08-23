@@ -321,14 +321,30 @@ TRUNCATED_FISCAL_YEARS: Final[tuple[int, ...]] = (2027,)
 # Together these produce 4,750 EXCEPTIONAL records (1.65%), holding between
 # 1.43% and 2.24% in every fiscal year -- roughly 680 contracts a year.
 
-# Amount extremity is expressed as a PERCENTILE of the peer group, not as a
-# multiple of its median. A percentile is directly volume-controllable, is
-# stable as the distribution shifts, and does not silently change meaning when
-# a peer group's shape changes. Note the vintage quantile sketch has
-# whole-percentile resolution, so thresholds finer than 0.99 are not
-# representable -- a deliberate limit, since claiming 99.9th-percentile
-# precision from a 30-observation peer group would be false precision anyway.
-EXCEPTIONAL_AMOUNT_PERCENTILE: Final[float] = 0.99
+# Amount extremity, expressed as a multiple of the peer-group median exactly as
+# the brief describes: "contract amount above a defined multiple of the regional
+# and category median, for example more than five times the median."
+#
+# Five is the brief's illustration, not its requirement -- the requirement is a
+# *defined* multiple. Defined here at 150x, on this evidence:
+#
+#     multiple   EXCEPTIONAL total   per year
+#          5x     60,101  (20.86%)      8,585   <- the brief's example
+#         10x     37,090  (12.87%)      5,298
+#         25x     18,598  ( 6.45%)      2,656
+#         50x     10,930  ( 3.79%)      1,561
+#        100x      6,629  ( 2.30%)        947
+#        150x      5,178  ( 1.80%)        739   <- adopted
+#
+# At 5x this control would route a fifth of the entire portfolio to senior
+# review -- 8,585 contracts a year, which is not a priority queue, it is a second
+# inbox. The cause is the shape of the distribution rather than anything wrong
+# with the rule: amounts are heavy-tailed enough that 5x the median sits at only
+# the 78th percentile.
+#
+# Change this value and the EXCEPTIONAL volume moves with it; the table above is
+# the record of what each setting costs a review function.
+EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE: Final[float] = 150.0
 
 # Non-competitive award above this value. Direct selection is lawful and often
 # appropriate; it is the combination with scale that warrants a named reviewer.

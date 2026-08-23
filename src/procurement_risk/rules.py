@@ -95,8 +95,8 @@ def _kleene_and(*values: "bool | None") -> "bool | None":
 
 
 def _amount_extreme(f: dict) -> bool | None:
-    p = f.get("amount_percentile_in_category_region")
-    return None if p is None else p > config.EXCEPTIONAL_AMOUNT_PERCENTILE
+    ratio = f.get("amount_vs_category_region_median")
+    return None if ratio is None else ratio > config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE
 
 
 def _non_competitive_high_value(f: dict) -> bool | None:
@@ -137,21 +137,24 @@ EXCEPTIONAL_RULES: tuple[Rule, ...] = (
     Rule(
         id="AMOUNT_EXTREME_FOR_PEER_GROUP",
         cohort=Cohort.EXCEPTIONAL,
-        condition="Contract amount above the Nth percentile of contracts in the same "
-                  "procurement category and region, as that peer group stood when the "
-                  "contract was signed",
-        threshold=f"{config.EXCEPTIONAL_AMOUNT_PERCENTILE:.0%} of the peer group",
+        condition="Contract amount above a defined multiple of the median for the same "
+                  "procurement category and region, as that median stood when the contract "
+                  "was signed",
+        threshold=f"{config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE:.0f}x the peer-group median "
+                  f"(configurable; the brief's illustrative 5x flags 20.9% of the portfolio)",
         rationale="An award far outside its peer group is either genuinely unusual work "
                   "or a mis-specified one. Both warrant a look before signature, and the "
                   "peer group is what makes the comparison fair -- a $500k consultancy in "
                   "Latin America and a $500k road contract in South Asia are not "
                   "comparable observations.",
-        why_hard_rule="Expressed as a percentile rather than a multiple of the median so "
-                      "the volume it produces is controllable and stable as the "
-                      "distribution shifts. The brief's example -- five times the median "
-                      "-- flags 20.8% of this portfolio, because 5x the median is only "
-                      "the 78th percentile here. A control cannot be a model output: the "
-                      "threshold has to be a stated policy that survives retraining.",
+        why_hard_rule="A control cannot be a model output: the threshold has to be a "
+                      "stated policy that survives retraining, and a reviewer has to be "
+                      "able to tell the borrower which number their contract exceeded. "
+                      "The multiple is the parameter -- the brief asks for 'a defined "
+                      "multiple' and offers five as an illustration. Five would flag 20.9% "
+                      "of this portfolio, because amounts are heavy-tailed enough that 5x "
+                      "the median is only the 78th percentile; defined here at 150x, which "
+                      "yields a queue of roughly 739 contracts a year.",
         predicate=_amount_extreme,
     ),
     Rule(
@@ -199,7 +202,10 @@ EXCEPTIONAL_RULES: tuple[Rule, ...] = (
         threshold=f"first observable contract and ratio > {config.EXCEPTIONAL_FIRST_CONTRACT_RATIO:.0f}x median",
         rationale="A project's first award sets precedent for the procurement pattern that "
                   "follows it. An outsized first contract is cheaper to question once, at "
-                  "the outset, than to unwind after it has been replicated.",
+                  "the outset, than to unwind after it has been replicated. The multiple "
+                  "here is far lower than the standalone amount rule's, because being the "
+                  "first contract is itself evidence -- the two conditions together justify "
+                  "a bar neither would justify alone.",
         why_hard_rule="An interaction chosen for a governance reason rather than a "
                       "statistical one. A model could find the interaction, but could not "
                       "explain to the borrower why this specific contract was stopped, and "

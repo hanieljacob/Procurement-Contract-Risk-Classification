@@ -90,20 +90,21 @@ for f in fatal: print("   ", f)
 """)
 
 md("""
-## 3. Calibration — and why the brief's example threshold does not work
+## 3. Calibration — defining the multiple
 
-The brief suggests *"contract amount above a defined multiple of the regional and category median,
-for example more than five times the median."*
+The brief asks for *"contract amount above **a defined multiple** of the regional and category
+median, for example more than five times the median."* The requirement is a defined multiple; five is
+the illustration. So the rule takes exactly that form, and the multiple is the parameter
+(`config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE`).
 
-Measured on this extract, **5× the median flags 20.8% of the portfolio**. The cause is the shape of
-the distribution: contract amounts are heavy-tailed enough that five times the median sits at only
-the **78th percentile**. A control that routes a fifth of the portfolio to senior review is not a
-control — it is a second inbox.
+Defining it is the judgment work, and the table below is the evidence. **Five would flag 20.9% of the
+portfolio** — roughly 8,585 contracts a year routed to senior review. That is not a priority queue,
+it is a second inbox. The cause is the shape of the distribution rather than anything wrong with the
+rule: amounts are heavy-tailed enough that 5× the median sits at only the **78th percentile**.
 
-The brief explicitly permits adjusting rules provided each is documented, so amount extremity is
-expressed as a **percentile of the peer group** instead. A percentile is directly volume-controllable,
-is stable as the distribution shifts, and does not silently change meaning when a peer group's shape
-changes.
+Defined at **150×**, the control yields ~739 contracts a year, which a senior reviewer or control
+function could actually work through. Change the constant and the volume moves with it — the table is
+the record of what each setting costs.
 """)
 
 code("""
@@ -111,12 +112,21 @@ r = features.amount_vs_category_region_median
 p = features.amount_percentile_in_category_region
 n = len(features)
 
-rows = [{"rule form": f"amount > {m}x peer median", "flagged": int((r>m).sum()),
-         "% of portfolio": round((r>m).mean()*100, 2),
-         "note": "<- the brief's example" if m==5 else ""} for m in (5,10,25,50,100)]
-rows += [{"rule form": f"amount above {q:.0%} of peer group", "flagged": int((p>q).sum()),
-          "% of portfolio": round((p>q).mean()*100, 2),
-          "note": "<- adopted" if q==0.99 else ""} for q in (0.95, 0.99)]
+nc = features.is_competitive_method == False
+first = features.is_first_contract_in_project == True
+off = (features.supplier_in_secrecy_jurisdiction == True) & (features.supplier_is_domestic == False)
+other = (nc & (features.amount_usd > config.EXCEPTIONAL_NON_COMPETITIVE_AMOUNT)) | off \
+        | (first & (r > config.EXCEPTIONAL_FIRST_CONTRACT_RATIO))
+
+rows = []
+for m in (5, 10, 25, 50, 75, 100, 150, 250):
+    union = (r > m) | other
+    note = "<- the brief's example" if m == 5 else (
+           "<- adopted" if m == config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE else "")
+    rows.append({"multiple": f"{m}x median", "this rule alone": int((r > m).sum()),
+                 "TOTAL exceptional": int(union.sum()),
+                 "% of portfolio": round(union.mean()*100, 2),
+                 "per year": int(union.sum()/7), "note": note})
 pd.DataFrame(rows)
 """)
 
@@ -274,8 +284,8 @@ md("""
 
 | | contracts | share |
 |---|---|---|
-| Decided here | 7,525 | 2.61% |
-| Passed to the model | 280,712 | 97.39% |
+| Decided here | 7,953 | 2.76% |
+| Passed to the model | 280,284 | 97.24% |
 
 The model never sees a record that is unscoreable, that tripped a mandatory control, or whose
 controls could not be evaluated. It is handed a population where every rule was evaluable and none
@@ -290,7 +300,7 @@ fired — which is what makes a `ROUTINE` verdict meaningful rather than a defau
 
 **Limitation worth stating.** These thresholds are calibrated on *volume*, not on outcomes — this
 extract contains no realised fraud, dispute or cancellation label, so there is no way to measure
-whether the 4,750 contracts flagged are the *right* 4,750. What the calibration guarantees is that
+whether the 5,178 contracts flagged are the *right* 5,178. What the calibration guarantees is that
 the queue is actionable and the reasoning is explicit; it cannot guarantee precision, and no
 threshold chosen from this data could.
 """)

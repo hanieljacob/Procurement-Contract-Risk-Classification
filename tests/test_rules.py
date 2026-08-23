@@ -112,7 +112,7 @@ def test_clean_record_triggers_nothing_and_proceeds_to_model():
     "rule_id,features",
     [
         ("AMOUNT_EXTREME_FOR_PEER_GROUP",
-         {"amount_percentile_in_category_region": 0.995}),
+         {"amount_vs_category_region_median": 500.0}),
         ("NON_COMPETITIVE_HIGH_VALUE",
          {"is_competitive_method": False, "amount_usd": 5_000_000.0}),
         ("OFFSHORE_SUPPLIER_FOREIGN_TO_BORROWER",
@@ -149,10 +149,7 @@ def test_offshore_but_domestic_does_not_fire():
 def test_unevaluable_rule_defaults_to_high_attention_never_routine():
     """A record with no benchmark carries an unknown where a control expected
     an answer, so it goes to a person rather than to the model."""
-    outcome = apply_rules(_enriched(
-        amount_percentile_in_category_region=None,
-        amount_vs_category_region_median=None,
-    ))
+    outcome = apply_rules(_enriched(amount_vs_category_region_median=None))
     assert outcome.cohort is Cohort.HIGH_ATTENTION
     assert not outcome.proceeds_to_model
     assert "AMOUNT_EXTREME_FOR_PEER_GROUP" in outcome.undecidable
@@ -162,7 +159,7 @@ def test_a_fired_rule_outranks_an_unevaluable_one():
     """Knowing a control fired beats not knowing whether another one did."""
     outcome = apply_rules(_enriched(
         is_competitive_method=False, amount_usd=5_000_000.0,
-        amount_percentile_in_category_region=None,
+        amount_vs_category_region_median=None,
     ))
     assert outcome.cohort is Cohort.EXCEPTIONAL
 
@@ -177,6 +174,20 @@ def test_every_rule_is_fully_documented():
         assert entry["threshold"], f"{entry['rule_id']} has no stated threshold"
         for field in ("condition", "rationale", "why_hard_rule"):
             assert len(entry[field]) > 30, f"{entry['rule_id']}.{field} is not an explanation"
+
+
+def test_amount_multiple_is_configurable(monkeypatch):
+    """The brief asks for "a defined multiple"; the multiple is the parameter.
+
+    Five is its illustration, not its requirement -- and five would flag 20.9% of
+    this portfolio, because amounts are heavy-tailed enough that 5x the median is
+    only the 78th percentile.
+    """
+    record = _enriched(amount_vs_category_region_median=50.0)
+    assert apply_rules(record).proceeds_to_model            # below the 150x default
+
+    monkeypatch.setattr(config, "EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE", 5.0)
+    assert apply_rules(record).cohort is Cohort.EXCEPTIONAL  # fires at the brief's 5x
 
 
 def test_rule_ids_are_unique():

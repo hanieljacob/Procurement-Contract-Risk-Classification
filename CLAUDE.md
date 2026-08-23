@@ -101,8 +101,11 @@ rules does not make it `ROUTINE`, and nothing here may assign `ROUTINE`.
   it is deterministic policy rather than something the model should infer. `test_every_rule_is_fully_documented`
   enforces this.
 - **Thresholds are calibrated on reviewable volume**, targeting 1–2% EXCEPTIONAL, and
-  `test_exceptional_volume_stays_reviewable` fails outside 1–3%. If you change a threshold, re-run the
-  calibration table in notebook 02 and update the figures in `README.md`.
+  `test_exceptional_volume_stays_reviewable` fails outside 1–3%. The amount rule takes the form the
+  brief specifies — a *defined multiple* of the peer-group median — with the multiple as the
+  parameter (`EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE`, default 150×). The brief's illustrative 5× would
+  flag 20.9%; `config.py` carries the full volume-per-setting table. If you change any threshold,
+  re-run the calibration table in notebook 02 and update the figures in `README.md`.
 - Rules that cannot fire on this data stay in the registry with `active=False` rather than being
   deleted, so the write-up can report a control with no coverage.
 
