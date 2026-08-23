@@ -10,3 +10,6 @@ __pycache__/
 # source brief — not part of the project
 *.docx
 data/*.pkl
+
+# private interview prep — not part of the submission
+prep/
