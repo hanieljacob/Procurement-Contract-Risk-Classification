@@ -43,7 +43,7 @@ from procurement_risk.features import build_reference_stats, engineer_features
 from procurement_risk.pipeline import validate_and_enrich
 
 clean    = clean_frame(load_raw())
-stats    = build_reference_stats(clean)      # fit benchmarks (FY2020-22), frozen
+stats    = build_reference_stats(clean)      # fit monthly benchmark vintages
 features = engineer_features(clean, stats)   # batch transform
 
 result = validate_and_enrich(clean.iloc[0].to_dict(), stats)
@@ -88,13 +88,17 @@ reports/data_quality_register.csv     generated
 be determined are different facts. Collapsing them into `0` would be invisible downstream, so every
 feature that can be unknowable is tri-state and carries a flag explaining why.
 
-**Benchmarks are fitted; history is queried.** Both are population statistics, but they leak
-differently. A median has no date filter, so one computed across all years imports the future —
-benchmarks are therefore fitted on FY2020–22 only and frozen into a versioned artefact. History
-counts *do* have a date filter ("signed strictly before this record"), so restricting their store
-to training years would not reduce leakage, it would just make a FY2025 record wrongly look like a
-first-time supplier — that store spans every year. Reversing these two is the easy mistake and it
-damages both the model and the audit trail.
+**Every population statistic reads only the past.** A statistic may draw on all years *precisely
+because* it only ever reads what preceded the record being scored. Benchmarks are monthly vintages —
+for each `(category, region, month)`, the median and quantile sketch of everything signed strictly
+before that month — and history counts query the same way. There is no fitting window, and the
+train/test split governs the model alone.
+
+This replaced an earlier design that fitted benchmarks over FY2020–22 and froze them, on the
+reasoning that real systems publish benchmark tables periodically. That holds for deployment but not
+for scoring history: a contract signed in July 2019 was divided by a median containing contracts
+signed up to three years later. Measured, the frozen median ran +3.3% against the true as-of value in
+FY2020 and −10.6% by FY2026 — look-ahead at one end of the timeline, staleness at the other.
 
 **One code path.** The batch table and the single-record call are asserted to produce identical
 values on all 15 features. Building that check is what surfaced three real defects (below).
@@ -106,7 +110,8 @@ values on all 15 features. Building that check is what surfaced three real defec
 | Records | 288,237 supplier-award rows / 276,417 distinct contracts |
 | Scoreable | 288,224 · **13** fail validation and become `NOT_ELIGIBLE` |
 | Features | 15, tri-state wherever a value can be unknowable |
-| Benchmarks | frozen on FY2020–22, versioned `v1.0` |
+| Benchmarks | 2,410 monthly vintages, versioned `v1.0` |
+| No benchmark | 2,706 FY2020 records too early for any peer history — reported, not imputed |
 
 Findings that shaped the design:
 
@@ -124,12 +129,19 @@ Findings that shaped the design:
 5. **FY2027 is truncated** — 1,170 rows against a ~41,000 norm and 17.3% prior review against ~7%,
    because the extract was frozen seven weeks into the year. Quarantined from the test split, which
    uses FY2024–26.
+6. **Benchmark medians move substantially** — the Works median falls from $149,585 to $70,318
+   (less than half), and Non-consulting Services swings 2.9x within the window, dropping to $5,819
+   in FY2021 before recovering. No single fixed value could have served both ends of that, which is
+   why the frozen design had to go.
 
-Three defects caught by the batch-vs-single-record agreement test:
+Four defects caught by asserting the batch and single-record paths agree on every feature:
 
 - a `NaN`-vs-`None` gap that silently substituted the global median for a missing global practice;
 - a double space in `Consultant Qualification··Selection` that failed 15,956 records (5.5%) as
   "unmapped method";
-- greedy legal-suffix stripping that erased four real supplier names to nothing.
+- greedy legal-suffix stripping that erased four real supplier names to nothing;
+- country codes canonicalised in one path but not the other.
 
-Each has a regression test.
+A fifth — the frozen benchmark's look-ahead — was found while calibrating exception thresholds, and
+is the reason benchmarks are now vintaged. Each has a regression test, including one asserting that
+no vintage cell can be derived from a contract signed in its own month or later.

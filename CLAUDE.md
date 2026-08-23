@@ -42,16 +42,27 @@ survives.
 no clock, no globals, no file reads — which is what makes the audit record reproducible. Keep it that
 way; if you need the current time, inject it.
 
-**Fit/transform split (`features.py`) — the load-bearing design decision.** Two kinds of population
-statistic, with different leakage properties:
+**Every population statistic is date-filtered (`features.py`) — the load-bearing rule.** A statistic
+may draw on all years *precisely because* it only ever reads what preceded the record being scored.
+There is no fitting window, and `config.TRAIN_FISCAL_YEARS` governs the model split only — never
+feature construction.
 
-- **Benchmark medians** have no date filter, so one computed over all years imports the future.
-  Fitted on `config.TRAIN_FISCAL_YEARS` only, frozen into a versioned `ReferenceStats` artefact.
-- **History counts** query with a date filter ("signed strictly before this record"). Their store
-  spans *every* year — restricting it to training years would not reduce leakage, it would just make
-  a FY2025 record wrongly look like a first-time supplier.
+- **Benchmarks** are monthly vintages: for each `(category, region, month)`, the median and a
+  101-point quantile sketch of every contract signed strictly before that month. Look them up with
+  the record's signing date; `benchmark_median(category, region, as_of)`.
+- **History counts** query the same way — "signed strictly before this record" — via
+  `PointInTimeCounter`.
 
-Reversing these two is the easy mistake and it silently breaks both the model and the audit trail.
+This was not the original design, and the reason matters. Benchmarks used to be fitted over
+FY2020–22 and frozen, so a contract signed in July 2019 was divided by a median containing contracts
+signed up to three years *later*. Measured: the frozen median ran +3.3% against the true as-of value
+in FY2020 and −10.6% by FY2026 — look-ahead at one end of the timeline, staleness at the other. If
+you are tempted to reintroduce a fitting window for a new statistic, that is the bug you are
+recreating.
+
+**Warm-up is a real outcome.** Early records have too little prior history for any benchmark
+(2,706 rows, all FY2020). They get `None` plus `REFERENCE_MEDIAN_UNAVAILABLE` — never a fallback
+guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
 
 ## Gotchas, each of which has already caused a real bug
 

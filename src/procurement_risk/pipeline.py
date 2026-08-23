@@ -184,12 +184,14 @@ def validate_and_enrich(
         supplier_is_domestic = supplier_code == borrower_code
 
     # ---- benchmarks ------------------------------------------------------
-    median, support_n, bench_flags = stats.benchmark_median(category, region)
+    # The signing date selects the benchmark vintage: the peer-group median as
+    # it stood before this contract was signed, never one containing its future.
+    median, support_n, bench_flags = stats.benchmark_median(category, region, signing_date)
     flags.extend(bench_flags)
     practice, multi_practice = primary_global_practice(_get(record, "global_practice_raw"))
     if multi_practice:
         flags.append(F.MULTI_PRACTICE_PROJECT)
-    practice_median, _, practice_flags = stats.practice_benchmark(practice)
+    practice_median, _, practice_flags = stats.practice_benchmark(practice, signing_date)
     flags.extend(practice_flags)
 
     # ---- point-in-time history ------------------------------------------
@@ -214,7 +216,7 @@ def validate_and_enrich(
         "amount_vs_category_region_median": _safe_ratio(amount, median),
         "amount_vs_practice_median": _safe_ratio(amount, practice_median),
         "amount_percentile_in_category_region": stats.amount_percentile(
-            amount, category, region
+            amount, category, region, signing_date
         ),
         "benchmark_support_n": support_n,
         "supplier_is_domestic": supplier_is_domestic,
@@ -240,7 +242,7 @@ def validate_and_enrich(
             "benchmark_median": median,
             "practice_median": practice_median,
             "reference_version": stats.version,
-            "reference_median_fiscal_years": list(stats.median_fiscal_years),
+            "benchmark_vintage_month": median is not None and signing_date.strftime("%Y-%m"),
         }
     )
 

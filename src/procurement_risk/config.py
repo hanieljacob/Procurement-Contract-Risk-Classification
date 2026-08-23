@@ -259,27 +259,47 @@ REGIONAL_BORROWER_MARKERS: Final[tuple[str, ...]] = (
 # --------------------------------------------------------------------------
 # Reference-statistic thresholds
 # --------------------------------------------------------------------------
-# Category x Region cells range from n=1 (Works x Other) to n=25,773. A median
-# over a single observation is not a median. Below MIN_GROUP_SUPPORT we fall
-# back up a ladder (category+region -> category -> global) and always emit the
-# support count so downstream stages can discount a thin cell.
+# Minimum prior contracts before a peer group is allowed to be a benchmark.
+# Category x Region cells range from n=1 (Works x Other) to n=25,773, and a
+# median over a single observation is not a median. Below this we climb a
+# ladder (category+region -> category -> overall) and always emit the support
+# count so downstream stages can discount a thin cell. If even the overall
+# vintage is short -- which happens only at the very start of the extract --
+# the benchmark is None, never a guess.
 
 MIN_GROUP_SUPPORT: Final[int] = 30
+
+# Benchmarks are published as MONTHLY vintages: the peer-group median of every
+# contract signed strictly before that month. Monthly rather than daily because
+# a real control function consumes a periodically published benchmark table,
+# and because it is the more conservative reading of point-in-time -- a contract
+# is never compared against anything signed in its own month. Coarser than
+# monthly would let a benchmark lag the portfolio; finer would imply a
+# refresh cadence no procurement function actually operates.
+
+BENCHMARK_VINTAGE_GRANULARITY: Final[str] = "month"
 
 # Guard for the ratio denominator. A median of exactly 0 would make the ratio
 # infinite; we flag instead of dividing.
 MIN_MEDIAN_DENOMINATOR: Final[float] = 1.0
 
 # --------------------------------------------------------------------------
-# Time-based split (defined here, consumed by the risk model)
+# Time-based split (defined here, consumed ONLY by the risk model)
 # --------------------------------------------------------------------------
+# These windows govern model training and evaluation and nothing else. They do
+# NOT restrict any feature: every population statistic is date-filtered and so
+# may draw on all years without look-ahead. An earlier design fitted benchmarks
+# over TRAIN_FISCAL_YEARS and froze them, which meant a FY2020 record was scored
+# against a median containing its own future. Benchmark vintages removed that,
+# and with it the need for feature construction to know about the split at all.
+#
 # The intended design is FY2020-2022 for training, FY2023 for validation, and
 # the most recent available fiscal year for the final test. The most recent FY
-# in this extract is FY2027, which
-# has only 1,170 rows (vs ~45,000 typical) because the extract was frozen seven
-# weeks into it, and its prior-review share is 17.3% vs the ~7% norm. Testing on
-# it would measure reporting lag, not model skill. We therefore reserve FY2027
-# as an explicitly-labelled holdout and use FY2024-2026 as the test window.
+# in this extract is FY2027, which has only 1,170 rows (vs ~45,000 typical)
+# because the extract was frozen seven weeks into it, and its prior-review share
+# is 17.3% vs the ~7% norm. Testing on it would measure reporting lag, not model
+# skill. We therefore reserve FY2027 as an explicitly-labelled holdout and use
+# FY2024-2026 as the test window.
 
 TRAIN_FISCAL_YEARS: Final[tuple[int, ...]] = (2020, 2021, 2022)
 VALIDATION_FISCAL_YEARS: Final[tuple[int, ...]] = (2023,)

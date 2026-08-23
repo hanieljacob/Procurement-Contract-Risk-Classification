@@ -145,22 +145,46 @@ def consortium_impact(row_grain: pd.DataFrame, contract_grain_df: pd.DataFrame) 
     }
 
 
-def benchmark_drift(clean_df: pd.DataFrame) -> pd.DataFrame:
-    """How far the frozen FY2020-22 medians drift from later years.
+def benchmark_vintage_trend(stats, category: str | None = None) -> pd.DataFrame:
+    """How the published benchmark moved over time, per procurement category.
 
-    Freezing the benchmark on the training window buys reproducibility and
-    removes look-ahead bias, but it costs accuracy as the portfolio moves. This
-    table quantifies that cost rather than leaving it as an assertion, so the
-    decision to refresh the artefact can be made on evidence.
+    Under the earlier frozen design this table measured a *cost* -- how far a
+    fixed FY2020-22 median had drifted from reality, reaching +89% for Goods by
+    FY2026. With monthly vintages the same movement is simply what the benchmark
+    does: it tracks the portfolio. The table is kept because the size of the
+    movement is the evidence that freezing was untenable, not a footnote.
     """
-    usable = clean_df[clean_df["amount_usd"] > 0]
-    base = (
-        usable[usable["fiscal_year"].isin(config.TRAIN_FISCAL_YEARS)]
-        .groupby("procurement_category")["amount_usd"].median()
-    )
     rows = []
-    for fy, sub in usable.groupby("fiscal_year"):
-        med = sub.groupby("procurement_category")["amount_usd"].median()
-        drift = ((med / base - 1) * 100).round(1)
-        rows.append(drift.rename(fy))
-    return pd.DataFrame(rows).rename_axis("fiscal_year")
+    for (cat, month), cell in stats.category.items():
+        rows.append({"procurement_category": cat, "month": month,
+                     "median_usd": cell.median, "support_n": cell.support_n})
+    df = pd.DataFrame(rows)
+    df["fiscal_year"] = np.where(
+        (df["month"] % 12) + 1 >= config.FY_START_MONTH,
+        df["month"] // 12 + 1, df["month"] // 12
+    )
+    out = (df.groupby(["fiscal_year", "procurement_category"])["median_usd"]
+             .median().unstack().round(0))
+    if category:
+        out = out[[category]]
+    return out
+
+
+def benchmark_vintage_coverage(features: pd.DataFrame) -> pd.DataFrame:
+    """Where a benchmark exists, where a fallback was used, and where neither.
+
+    The third column is the one worth reading: those records are too early in
+    the extract for any peer history to exist, so they carry no benchmark at
+    all. That is reported as unknown rather than filled, and the rule engine
+    routes them to HIGH_ATTENTION.
+    """
+    g = features.groupby("fiscal_year")
+    return pd.DataFrame({
+        "contracts": g.size(),
+        "exact_peer_benchmark": g.apply(
+            lambda d: int((d["benchmark_median"].notna() & ~d["benchmark_is_thin"]).sum()),
+            include_groups=False),
+        "widened_fallback": g["benchmark_is_thin"].sum().astype(int),
+        "no_benchmark_warmup": g.apply(
+            lambda d: int(d["benchmark_median"].isna().sum()), include_groups=False),
+    })

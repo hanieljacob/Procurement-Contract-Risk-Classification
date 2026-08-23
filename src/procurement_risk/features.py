@@ -1,28 +1,25 @@
 """Reference statistics (fit) and feature engineering (transform).
 
-The single most important decision in the pipeline lives here: the split between
-what is *fitted* and what is *computed per record*.
+Every population statistic in this module is **date-filtered**: it reads only
+what was signed before the record being scored. That is the single rule, and it
+applies uniformly to benchmarks and to history counts alike.
 
-Two kinds of population statistic feed the feature set, and they have different
-leakage properties:
+It was not always so. Benchmark medians were originally fitted over a fixed
+window (FY2020-22) and frozen, on the reasoning that a real review system
+publishes a benchmark table on a schedule rather than recomputing it per
+request. That is true of deployment, but it is wrong for scoring history: a
+contract signed in July 2019 was being divided by a median containing contracts
+signed up to three years *after* it. Measured, the frozen median ran +3.3%
+against the true as-of value in FY2020 and -10.6% by FY2026 -- look-ahead at one
+end of the timeline and staleness at the other, moving up to 2.6% of records
+across a threshold.
 
-  Benchmark medians ("amount relative to the median for this category and
-  region") have no date filter. A median taken over the whole extract is
-  contaminated by contracts signed after the record being assessed. These are
-  therefore fitted on the TRAINING FISCAL YEARS ONLY and frozen into a
-  versioned artefact. That mirrors how a real review system works -- a
-  benchmark table is refreshed on a schedule, not recomputed per request -- and
-  it is what makes the pipeline's reproducibility guarantee achievable.
-
-  History counts ("prior contracts from this supplier", "first contract in this
-  project") are queried WITH a date filter: count only what was signed strictly
-  before this record. Restricting the store to training years would not reduce
-  leakage, it would simply make a FY2025 record wrongly look like a first-time
-  supplier. So the history store spans every year available, and correctness
-  comes from the date predicate, not from the fitting window.
-
-Getting these two backwards -- freezing history and floating medians -- is the
-easy mistake, and it silently destroys both the model and the audit trail.
+The fix is a **vintage table**: for each peer group and each month, the median of
+everything signed strictly before that month. A benchmark may now draw on every
+year in the extract precisely because it can only ever read the past -- the same
+argument that always justified the history counts. So the two classes of
+statistic collapse into one, and the train/test split now matters only to the
+model, never to feature construction.
 """
 
 from __future__ import annotations
@@ -38,6 +35,20 @@ from .cleaning import _is_missing, contract_grain
 from .quality import DataQualityFlag as F
 
 _ORDINAL_SPACE = 10_000_000  # > any date.toordinal(); keeps composites unique
+
+# Quantile sketch resolution. 101 points gives whole-percentile precision, which
+# is finer than any threshold we set, at 2,416 cells x 101 floats -- trivial.
+_SKETCH = np.linspace(0.0, 1.0, 101)
+
+
+def month_key(d: date) -> int:
+    """Months since year 0. A cheap, hashable, orderable vintage key."""
+    return d.year * 12 + (d.month - 1)
+
+
+def month_key_series(dates: pd.Series) -> pd.Series:
+    dt = pd.to_datetime(dates)
+    return (dt.dt.year * 12 + (dt.dt.month - 1)).astype("Int64")
 
 
 class PointInTimeCounter:
@@ -61,7 +72,6 @@ class PointInTimeCounter:
         composite.sort()
         self._index = {key: i for i, key in enumerate(uniq)}
         self._composite = composite
-        # First occurrence per group, for "is this the first ever?" questions.
         order = np.argsort(group_ids, kind="stable")
         self._earliest = (
             pd.DataFrame({"g": group_ids[order], "d": d[order]})
@@ -72,10 +82,10 @@ class PointInTimeCounter:
         return len(self._index)
 
     def count_before(self, key, query_date: date | None) -> int | None:
-        """Number of stored events for `key` strictly before `query_date`.
+        """Events for `key` strictly before `query_date`.
 
-        None means "unknowable" -- an unresolved key or an unusable date --
-        and must never be read as zero by a caller.
+        None means "unknowable" -- an unresolved key or an unusable date -- and
+        must never be read as zero by a caller.
         """
         if _is_missing(key) or query_date is None:
             return None
@@ -83,9 +93,8 @@ class PointInTimeCounter:
         if gid is None:
             return 0  # key resolved, simply never seen before: a genuine zero
         lo = gid * _ORDINAL_SPACE
-        target = lo + query_date.toordinal()
         left = np.searchsorted(self._composite, lo, side="left")
-        pos = np.searchsorted(self._composite, target, side="left")
+        pos = np.searchsorted(self._composite, lo + query_date.toordinal(), side="left")
         return int(pos - left)
 
     def count_before_batch(self, keys: pd.Series, dates: pd.Series) -> pd.Series:
@@ -100,8 +109,7 @@ class PointInTimeCounter:
         lo = gid * _ORDINAL_SPACE
         left = np.searchsorted(self._composite, lo, side="left")
         pos = np.searchsorted(self._composite, lo + d, side="left")
-        counts = np.where(gid < 0, 0, pos - left)
-        out.loc[mask] = counts.astype(np.int64)
+        out.loc[mask] = np.where(gid < 0, 0, pos - left).astype(np.int64)
         return out
 
     def earliest(self, key) -> int | None:
@@ -111,70 +119,114 @@ class PointInTimeCounter:
         return self._earliest.get(gid) if gid is not None else None
 
 
+@dataclass(frozen=True)
+class Vintage:
+    """A benchmark as it stood at the start of one month."""
+
+    median: float
+    support_n: int
+    quantiles: np.ndarray  # 101 points; percentile lookup by searchsorted
+
+    def percentile_of(self, amount: float) -> float:
+        return float(np.searchsorted(self.quantiles, float(amount), side="right") / len(self.quantiles))
+
+
+def _build_vintages(frame: pd.DataFrame, keys: list[str]) -> dict[tuple, Vintage]:
+    """Median + quantile sketch of everything signed strictly before each month.
+
+    "Strictly before the month" rather than "strictly before the day" is
+    deliberate: a benchmark table is published periodically, and a monthly
+    vintage is both how a real control function would consume one and a
+    conservative reading of point-in-time -- a contract signed on the 15th is
+    never compared against anything signed in its own month.
+    """
+    out: dict[tuple, Vintage] = {}
+    group_cols = keys + ["_month"]
+    for key, sub in frame.groupby(keys, observed=True, dropna=True):
+        key = key if isinstance(key, tuple) else (key,)
+        sub = sub.sort_values("_month")
+        amounts = sub["amount_usd"].to_numpy()
+        months = sub["_month"].to_numpy()
+        # One pass: the prefix of `amounts` before each distinct month.
+        distinct = np.unique(months)
+        for m in distinct:
+            prior = amounts[months < m]
+            if len(prior) < config.MIN_GROUP_SUPPORT:
+                continue
+            prior = np.sort(prior)
+            out[key + (int(m),)] = Vintage(
+                median=float(np.median(prior)),
+                support_n=int(len(prior)),
+                quantiles=np.quantile(prior, _SKETCH),
+            )
+    return out
+
+
 @dataclass
 class ReferenceStats:
-    """Frozen, versioned benchmark artefact. Fitted once, then read-only."""
+    """Versioned reference artefact. Fitted once, then read-only.
+
+    Every member is date-keyed, so applying it to a record can only ever consult
+    information that predates that record.
+    """
 
     version: str
-    median_fiscal_years: tuple[int, ...]
-    category_region_median: dict[tuple[str, str], float]
-    category_region_count: dict[tuple[str, str], int]
-    category_median: dict[str, float]
-    category_count: dict[str, int]
-    practice_median: dict[str, float]
-    practice_count: dict[str, int]
-    global_median: float
-    category_region_quantiles: dict[tuple[str, str], np.ndarray]
+    vintage_months: tuple[int, int]
+    category_region: dict[tuple, Vintage] = field(repr=False)
+    category: dict[tuple, Vintage] = field(repr=False)
+    overall: dict[tuple, Vintage] = field(repr=False)
+    practice: dict[tuple, Vintage] = field(repr=False)
     supplier_history: PointInTimeCounter = field(repr=False)
     project_history: PointInTimeCounter = field(repr=False)
 
     # -- benchmark lookup with a documented fallback ladder -----------------
-    def benchmark_median(self, category, region) -> tuple[float | None, int, list[F]]:
-        """Median contract amount for a peer group, with fallback.
+    def _vintage(self, category, region, as_of: date | None) -> tuple[Vintage | None, list[F]]:
+        if as_of is None or _is_missing(category):
+            return None, [F.REFERENCE_MEDIAN_UNAVAILABLE]
+        m = month_key(as_of)
+        if not _is_missing(region):
+            cell = self.category_region.get((category, region, m))
+            if cell is not None:
+                return cell, []
+        # Widen rather than pretend: a peer group with too little history yet is
+        # not a benchmark, so we climb to a coarser one and say that we did.
+        cell = self.category.get((category, m))
+        if cell is not None:
+            return cell, [F.THIN_REFERENCE_GROUP]
+        cell = self.overall.get((m,))
+        if cell is not None:
+            return cell, [F.THIN_REFERENCE_GROUP]
+        # Warm-up: too early in the extract for any benchmark to exist yet.
+        return None, [F.REFERENCE_MEDIAN_UNAVAILABLE]
 
-        Category x Region cells range from n=1 (Works x Other) to n=25,773. A
-        median over one observation is not a benchmark, so below
-        MIN_GROUP_SUPPORT we widen the peer group rather than pretend. The
-        support count is returned alongside so a downstream stage can discount
-        a thin cell instead of trusting it blindly.
-        """
-        flags: list[F] = []
-        if _is_missing(category) or _is_missing(region):
-            return None, 0, [F.REFERENCE_MEDIAN_UNAVAILABLE]
-        key = (category, region)
-        n = self.category_region_count.get(key, 0)
-        if n >= config.MIN_GROUP_SUPPORT:
-            return self.category_region_median[key], n, flags
-        flags.append(F.THIN_REFERENCE_GROUP)
-        n_cat = self.category_count.get(category, 0)
-        if n_cat >= config.MIN_GROUP_SUPPORT:
-            return self.category_median[category], n_cat, flags
-        if self.global_median and self.global_median > 0:
-            return self.global_median, sum(self.category_count.values()), flags
-        return None, 0, flags + [F.REFERENCE_MEDIAN_UNAVAILABLE]
+    def benchmark_median(self, category, region, as_of: date | None) -> tuple[float | None, int, list[F]]:
+        cell, flags = self._vintage(category, region, as_of)
+        return (None, 0, flags) if cell is None else (cell.median, cell.support_n, flags)
 
-    def practice_benchmark(self, practice) -> tuple[float | None, int, list[F]]:
+    def amount_percentile(self, amount, category, region, as_of: date | None) -> float | None:
+        """Where this amount sat within its peer group as of that month, 0-1."""
+        if _is_missing(amount):
+            return None
+        cell, _ = self._vintage(category, region, as_of)
+        return None if cell is None else cell.percentile_of(amount)
+
+    def practice_benchmark(self, practice, as_of: date | None) -> tuple[float | None, int, list[F]]:
         # _is_missing, not `is None`: a missing practice arrives as None from a
         # dict record but as NaN from a DataFrame column. Checking only for None
-        # let NaN fall through to the global-median fallback, which silently
-        # manufactured a benchmark for a field we do not actually have.
+        # let NaN fall through to the fallback, manufacturing a benchmark for a
+        # field we do not actually have.
         if _is_missing(practice):
             return None, 0, [F.GLOBAL_PRACTICE_MISSING]
-        n = self.practice_count.get(practice, 0)
-        if n >= config.MIN_GROUP_SUPPORT:
-            return self.practice_median[practice], n, []
-        if self.global_median and self.global_median > 0:
-            return self.global_median, sum(self.practice_count.values()), [F.THIN_REFERENCE_GROUP]
+        if as_of is None:
+            return None, 0, [F.REFERENCE_MEDIAN_UNAVAILABLE]
+        m = month_key(as_of)
+        cell = self.practice.get((practice, m))
+        if cell is not None:
+            return cell.median, cell.support_n, []
+        cell = self.overall.get((m,))
+        if cell is not None:
+            return cell.median, cell.support_n, [F.THIN_REFERENCE_GROUP]
         return None, 0, [F.REFERENCE_MEDIAN_UNAVAILABLE]
-
-    def amount_percentile(self, amount, category, region) -> float | None:
-        """Where this amount sits within its peer group, 0-1."""
-        if _is_missing(category) or _is_missing(region) or _is_missing(amount):
-            return None
-        q = self.category_region_quantiles.get((category, region))
-        if q is None:
-            return None
-        return float(np.searchsorted(q, float(amount), side="right") / len(q))
 
 
 def _safe_ratio(amount, median) -> float | None:
@@ -188,51 +240,41 @@ def _safe_ratio(amount, median) -> float | None:
 
 def build_reference_stats(
     clean_df: pd.DataFrame,
-    median_fiscal_years: tuple[int, ...] = config.TRAIN_FISCAL_YEARS,
     version: str = config.PIPELINE_VERSION,
 ) -> ReferenceStats:
-    """Fit the benchmark artefact.
+    """Fit the reference artefact.
 
     All statistics are computed at CONTRACT grain, not row grain. 8,584
     contracts are split across several supplier rows, most repeating the full
     contract amount on each -- counting rows would let a three-way joint
     venture push its amount into the median three times.
+
+    There is no fitting window. Each vintage cell reads only what preceded it,
+    so spanning every year adds history without adding look-ahead.
     """
     grain = contract_grain(clean_df)
-    usable = grain[grain["amount_usd"].notna() & (grain["amount_usd"] > 0)]
+    usable = grain[
+        grain["amount_usd"].notna()
+        & (grain["amount_usd"] > 0)
+        & grain["signing_date"].notna()
+    ].copy()
+    if usable.empty:
+        raise ValueError("No usable contracts to fit reference statistics from")
 
-    median_pool = usable[usable["fiscal_year"].isin(median_fiscal_years)]
-    if median_pool.empty:
-        raise ValueError(f"No usable contracts in fiscal years {median_fiscal_years}")
+    usable["_month"] = month_key_series(usable["signing_date"]).astype(int)
+    usable["_all"] = "ALL"
 
-    cr = median_pool.groupby(["procurement_category", "region"])["amount_usd"]
-    cat = median_pool.groupby("procurement_category")["amount_usd"]
-    prac = median_pool.groupby("global_practice")["amount_usd"]
-
-    quantiles = {
-        k: np.sort(v.to_numpy())
-        for k, v in median_pool.groupby(["procurement_category", "region"])["amount_usd"]
-        if len(v) >= config.MIN_GROUP_SUPPORT
-    }
-
-    # History spans ALL years by design -- see module docstring. The date
-    # predicate at query time, not the fitting window, is what prevents leakage.
-    supplier_history = PointInTimeCounter(usable["supplier_key"], usable["signing_date"])
-    project_history = PointInTimeCounter(usable["project_id"], usable["signing_date"])
+    months = (int(usable["_month"].min()), int(usable["_month"].max()))
 
     return ReferenceStats(
         version=version,
-        median_fiscal_years=tuple(median_fiscal_years),
-        category_region_median=cr.median().to_dict(),
-        category_region_count=cr.size().to_dict(),
-        category_median=cat.median().to_dict(),
-        category_count=cat.size().to_dict(),
-        practice_median=prac.median().to_dict(),
-        practice_count=prac.size().to_dict(),
-        global_median=float(median_pool["amount_usd"].median()),
-        category_region_quantiles=quantiles,
-        supplier_history=supplier_history,
-        project_history=project_history,
+        vintage_months=months,
+        category_region=_build_vintages(usable, ["procurement_category", "region"]),
+        category=_build_vintages(usable, ["procurement_category"]),
+        overall=_build_vintages(usable, ["_all"]),
+        practice=_build_vintages(usable, ["global_practice"]),
+        supplier_history=PointInTimeCounter(usable["supplier_key"], usable["signing_date"]),
+        project_history=PointInTimeCounter(usable["project_id"], usable["signing_date"]),
     )
 
 
@@ -262,15 +304,17 @@ FEATURE_COLUMNS: tuple[str, ...] = (
 def engineer_features(clean_df: pd.DataFrame, stats: ReferenceStats) -> pd.DataFrame:
     """Add the engineered feature columns to a cleaned frame.
 
-    Pure with respect to `stats`: given the same cleaned frame and the same
-    frozen artefact, the output is identical every time.
+    Pure with respect to `stats`: the same cleaned frame and the same artefact
+    give an identical result every time. Benchmark lookups go through the same
+    `ReferenceStats` methods the single-record path calls, so the two cannot
+    disagree.
     """
     out = clean_df.copy()
+    as_of = [d.date() if pd.notna(d) else None for d in out["signing_date"]]
 
-    # --- benchmark ratios ------------------------------------------------
     bench = [
-        stats.benchmark_median(c, r)
-        for c, r in zip(out["procurement_category"], out["region"])
+        stats.benchmark_median(c, r, d)
+        for c, r, d in zip(out["procurement_category"], out["region"], as_of)
     ]
     out["benchmark_median"] = [b[0] for b in bench]
     out["benchmark_support_n"] = [b[1] for b in bench]
@@ -279,20 +323,21 @@ def engineer_features(clean_df: pd.DataFrame, stats: ReferenceStats) -> pd.DataF
         _safe_ratio(a, m) for a, m in zip(out["amount_usd"], out["benchmark_median"])
     ]
 
-    prac = [stats.practice_benchmark(p) for p in out["global_practice"]]
+    prac = [stats.practice_benchmark(p, d) for p, d in zip(out["global_practice"], as_of)]
     out["practice_median"] = [p[0] for p in prac]
     out["amount_vs_practice_median"] = [
         _safe_ratio(a, m) for a, m in zip(out["amount_usd"], out["practice_median"])
     ]
 
     out["amount_percentile_in_category_region"] = [
-        stats.amount_percentile(a, c, r)
-        for a, c, r in zip(out["amount_usd"], out["procurement_category"], out["region"])
+        stats.amount_percentile(a, c, r, d)
+        for a, c, r, d in zip(
+            out["amount_usd"], out["procurement_category"], out["region"], as_of
+        )
     ]
 
     out["log_amount"] = np.log10(out["amount_usd"].where(out["amount_usd"] > 0))
 
-    # --- point-in-time history ------------------------------------------
     out["supplier_prior_contract_count"] = stats.supplier_history.count_before_batch(
         out["supplier_key"], out["signing_date"]
     )
@@ -303,11 +348,11 @@ def engineer_features(clean_df: pd.DataFrame, stats: ReferenceStats) -> pd.DataF
     )
     # "First" means strictly: nothing in this project was signed BEFORE this
     # contract. Contracts sharing the project's earliest signing date all
-    # qualify (6,010 rows over 3,104 projects). That is deliberate -- the
-    # extract records a date, not a time, so within a single day there is no
-    # defensible ordering, and inventing one via row order would make the
-    # feature depend on file layout. Reviewer-facing meaning: "no prior
-    # contract was observable in this project when this one was signed."
+    # qualify. That is deliberate -- the extract records a date, not a time, so
+    # within a single day there is no defensible ordering, and inventing one via
+    # row order would make the feature depend on file layout. Reviewer-facing
+    # meaning: "no prior contract was observable in this project when this one
+    # was signed."
     out["is_first_contract_in_project"] = (
         out["project_contract_sequence"] == 0
     ).astype("boolean")
