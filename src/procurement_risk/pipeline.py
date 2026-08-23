@@ -206,10 +206,20 @@ def validate_and_enrich(
     if review_type is None:
         flags.append(F.REVIEW_TYPE_MISSING)
 
-    consortium_size = _get(record, "consortium_size")
-    consortium_size = int(consortium_size) if consortium_size is not None else 1
-    if consortium_size > 1:
-        flags.append(F.CONSORTIUM_MEMBER_ROW)
+    # How many suppliers share this contract number is a property of the
+    # CONTRACT, not of one supplier row -- a single record cannot see its
+    # siblings. When the caller does not supply it we record it as unknown
+    # rather than assuming a single supplier: defaulting to 1 was silently
+    # wrong for the 20,404 rows that belong to joint ventures, and it made the
+    # per-record path disagree with the batch path on exactly those records.
+    raw_consortium = _get(record, "consortium_size")
+    if raw_consortium is None:
+        consortium_size = None
+        flags.append(F.CONSORTIUM_SIZE_UNKNOWN)
+    else:
+        consortium_size = int(raw_consortium)
+        if consortium_size > 1:
+            flags.append(F.CONSORTIUM_MEMBER_ROW)
 
     features = {
         "amount_usd": amount,
