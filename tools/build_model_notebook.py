@@ -46,7 +46,46 @@ print(f"high attention (label=1) : {int(y_all.sum()):,}  ({y_all.mean()*100:.2f}
 """)
 
 md("""
-## 1. Leakage — measured, not asserted
+## 1. Why this definition is a reasonable one
+
+The brief asks for the definition to be justified as well as criticised, and it deserves the
+justification. Absent any outcome data, it is a well-chosen proxy:
+
+**It isolates exposure that no market test has checked.** The two conditions together pick out
+contracts where a large sum was committed on a decision no competitor challenged. That is precisely
+the combination a procurement control function worries about — concentrated spend with no
+independent price discovery behind it.
+
+**Neither condition alone would work, and the conjunction is the insight.** Large-but-competitive is
+ordinary: major infrastructure is *supposed* to be expensive, and competition supplies the price
+check. Small-but-non-competitive is also ordinary and cheap to get wrong: direct-selecting a $5,000
+consultant is routine and the exposure is trivial. Only together do they describe something worth a
+senior reviewer's time.
+
+**It is peer-relative rather than absolute.** "Top quartile within the same category and region"
+compares a Latin American consultancy against Latin American consultancies, not against South Asian
+road works. An absolute dollar threshold would simply relabel the definition "is this a Works
+contract", which carries no information a reviewer does not already have.
+
+**It is observable at signing.** Both halves are known at the moment the review decision has to be
+made. A label that required waiting for an outcome would be useless for prior review, whatever its
+statistical merits.
+
+**It is auditable.** A borrower can be told exactly why their contract was routed for closer review,
+in one sentence, with the threshold named. That matters more for a fiduciary control than a marginal
+gain in predictive accuracy would.
+
+It also mirrors how the Bank already works: prior-review thresholds are themselves a function of
+contract value and procurement method, so the definition encodes existing policy rather than
+inventing a new theory of risk.
+
+**What it is not** is a measure of wrongdoing. It flags *structural* exposure, not misconduct — most
+of the contracts it selects will be perfectly proper, and some genuinely problematic contracts will
+be small, competitive, and invisible to it. Section 7 sets out the limitations in full.
+""")
+
+md("""
+## 2. Leakage — measured, not asserted
 
 Train with the label's own inputs present and both models return a **perfect AUC of 1.0000** on
 held-out years. That is not skill. It is the definition being read back.
@@ -70,7 +109,7 @@ print("\\nwithheld:", list(M.LABEL_DEFINING_FEATURES))
 """)
 
 md("""
-### 1.1 Two leaks that were not obvious
+### 2.1 Two leaks that were not obvious
 
 Removing the two columns the brief names is not sufficient. Two more had to be found by measurement.
 
@@ -99,7 +138,7 @@ print(f"  their procurement method       : {eligible.loc[forced,'procurement_met
 """)
 
 md("""
-## 2. Training
+## 3. Training
 
 Both models the brief requires. Fitted on FY2020–22, probabilities calibrated on FY2023, tested once
 on FY2024–26. FY2027 is quarantined — a seven-week stub where testing would measure reporting lag
@@ -130,7 +169,7 @@ print("features:", M.feature_columns())
 """)
 
 md("""
-## 3. Evaluation — the three measures the brief names
+## 4. Evaluation — the three measures the brief names
 
 **Calibration**, **precision at the top decile**, and **the share of flagged contracts that fall in
 the high-attention group**. Reported for both models, on validation and test, with the quarantined
@@ -174,7 +213,7 @@ plt.tight_layout(); plt.show()
 """)
 
 md("""
-## 4. Threshold — chosen conservatively, and what that costs
+## 5. Threshold — chosen conservatively, and what that costs
 
 The brief is explicit: *missing a genuinely high-attention contract carries more risk than
 over-flagging a routine one.* So **recall is the constraint and reviewer volume is the price**. The
@@ -203,7 +242,7 @@ out.round(4)
 """)
 
 md("""
-## 5. Per-record output
+## 6. Per-record output
 
 Risk score, band, and the three features moving it most — via SHAP on the tree model, so the
 explanation comes from the model doing the scoring rather than a stand-in.
@@ -219,7 +258,7 @@ for label, rec in (("HIGHEST-SCORING CONTRACT", te.iloc[[int(scores.argmax())]])
 """)
 
 md("""
-## 6. What this model is actually for — and its limitations
+## 7. What this model is actually for — and its limitations
 
 **It is not a predictor of risk.** It is a predictor of a definition, and the definition is an
 assumption. Every number above measures agreement with that assumption.
