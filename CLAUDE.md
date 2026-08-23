@@ -74,6 +74,10 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
   pandas `.map`, `pd.NA` from an Arrow-backed string column. Always use `cleaning._is_missing()`,
   never `is None`. Checking only for `None` once let `NaN` fall through and silently substitute the
   global median for a benchmark we did not have.
+- **`contract_grain()` is for VALUE statistics only.** Deduplicating is required for amounts (raw rows
+  overstate by $13.5B) and **wrong for participation**: the history store is currently built from the
+  collapsed table, so 11,086 joint-venture partner rows get no credit for contracts they won. See
+  `ASSUMPTIONS.md` §9.1. Before reusing it, ask whether deduplication is right for *that* statistic.
 - **Row grain vs contract grain.** 8,584 contract numbers span several supplier rows (joint ventures),
   most repeating the *full* amount on each. Reporting is per row; every population statistic must go
   through `cleaning.contract_grain()` first. Raw-row totals overstate value by ~12%.
@@ -81,7 +85,9 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
   The source spells CQS with a double space; exact-string matching failed 15,956 records (5.5%) as
   "unmapped method".
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
-  history for these returns `None`, never `0`.
+  history for these returns `None`, never `0`. Note this is currently *too* conservative: `Supplier
+  ID` identifies 6,474 of these individuals across projects, so a quarter of them have recoverable
+  history the pipeline reports as unknowable. See `ASSUMPTIONS.md` §9.2.
 - **The notebooks are the source of truth.** They were originally generated from build scripts, now
   removed — edit them directly in Jupyter and re-run. If a narrative change touches a number quoted
   in `README.md`, update both.

@@ -83,9 +83,18 @@ It is a category label standing in for a natural person whose name is withheld. 
 these returns `None`, never `0` — counting them as one vendor would give a fifth of the portfolio the
 contract history of the most prolific supplier in the Bank.
 
+**But the conclusion drawn from this went one step too far.** That the *name* is a placeholder does
+not make the *supplier* unidentifiable, and `Supplier ID` was never re-examined. It should have been:
+see §9.2.
+
 ### 3.2 The normalised supplier *name* is the entity key, not `Supplier ID`
-183,980 IDs for 121,914 names, and 53,905 of those IDs belong to the placeholder alone. The ID
-behaves like a per-award reference, not a durable vendor identifier.
+183,980 IDs for 121,914 names, and 53,905 of those IDs belong to the placeholder alone. For *named*
+suppliers the resolved name is the better key, since the same firm appears under several IDs.
+
+**This does not mean the ID is worthless, which is what was originally inferred here.** For the
+placeholder population it is the only identifier available, and it works: 6,474 individuals appear
+more than once and 39.8% of those span multiple projects. The right design uses the name where it
+resolves and the ID where it does not — see §9.2.
 
 **Limitation:** matching is exact-after-normalisation. Genuine variants ("ACME LTD" vs "ACME COMPANY
 LTD") remain distinct entities. Proper resolution would need fuzzy matching and beneficial-ownership
@@ -247,7 +256,67 @@ nothing here can detect that.
 
 ---
 
-## 9. What would most change these conclusions
+## 9. Known defects
+
+Distinct from the sections above. Those are **choices** — decisions that could reasonably have gone
+another way. These are **errors**: places where the pipeline does something demonstrably wrong. Both
+were found late, by questioning a framing that had gone unchallenged for most of the build.
+
+### 9.1 Joint-venture partners lose credit for contracts they won
+
+`cleaning.contract_grain()` collapses each contract to a single row. That is **correct for amounts** —
+joint-venture rows repeat the full contract value, so without it totals overstate the portfolio by
+$13.5B. It is **wrong for supplier history**, where every partner genuinely won that contract.
+
+Because the history store is built from the collapsed table, only the alphabetically-first partner is
+credited:
+
+| | |
+|---|---|
+| Partner rows receiving no credit | **11,086** |
+| Distinct suppliers affected | **7,743** |
+| Worst-affected supplier | loses **25** contracts from its history |
+| Suppliers losing 5 or more | **184** |
+
+Against a median supplier history of 1 contract, losing 25 is severe: a firm that partners frequently
+is presented to the pipeline as a stranger. That understates `supplier_prior_contract_count`, can
+wrongly set `is_first_contract_in_project`, and both feed rules and the model.
+
+**The cause is a single tool serving two purposes.** Deduplication is required for money and
+forbidden for history; one collapsed table cannot do both. The fix is two grains — contract grain for
+value statistics, row grain for participation — not a change to either rule.
+
+### 9.2 Individual consultants are treated as less identifiable than they are
+
+The supplier *name* is a placeholder for 63,603 rows, which is why `supplier_key` is `None` for them.
+But `Supplier ID` was not re-examined, and it carries real signal:
+
+| | |
+|---|---|
+| Individuals with more than one contract | **6,474** |
+| Rows with recoverable history | **16,172** — a quarter of the placeholder population |
+| Of those individuals, working across >1 project | **39.8%** (537 across >1 borrower country) |
+
+Working across multiple projects and countries means the ID is **portfolio-level identity**, not a
+per-award reference. So for a quarter of these records the pipeline reports "unknowable" when the data
+could give a real number.
+
+This is conservative in the right direction — it never invents history — but it is still an
+overstatement of ignorance, and the tri-state discipline is supposed to cut both ways: `None` should
+mean *genuinely* unknown, not *unexamined*.
+
+**The fix** is to key supplier history on the resolved name where it exists and fall back to
+`Supplier ID` for placeholder rows, leaving `None` only for the ~75% with no repeat history.
+
+### 9.3 Why neither is fixed here
+
+Both change `supplier_prior_contract_count`, which moves features, the model, its thresholds, the
+cohort mix, and every figure quoted across the README and five notebooks. They are recorded rather
+than patched so the record is accurate about what this pipeline currently does, not what it should do.
+
+---
+
+## 10. What would most change these conclusions
 
 1. **Outcome labels.** Even a small hand-audited sample would turn the target from a definition into
    something testable, and would show whether any of this correlates with real risk.
