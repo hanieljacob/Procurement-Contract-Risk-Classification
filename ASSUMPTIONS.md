@@ -58,10 +58,32 @@ number, project, signing date, description, borrower and procurement method are 
 only supplier and amount vary. That is a joint venture, not a reused key.
 
 ### 2.2 Population statistics use contract grain, reporting uses row grain
-Joint-venture rows repeat the **full** contract amount on each row, so raw-row totals reach $130.1B
-against $116.6B at contract grain — a $13.5B overstatement. Every median, history count and project
-position therefore runs through `cleaning.contract_grain()` first, while per-row output stays at row
-grain because that is genuinely what the extract is.
+Joint-venture rows carry the **contract's** value, not each firm's share, so summing raw rows
+double-counts: $130.1B against $116.6B at contract grain, a $13.5B overstatement.
+
+**How we know the amount is not a share.** Three independent checks:
+
+1. **Per-row amounts do not scale as 1/n.** If each row were a share, a two-way split would show
+   half a typical contract. Measured against the $28,886 median for single-supplier contracts, the
+   median per-row amount is **8.57x for two suppliers, 5.82x for three, 4.63x for four** — where
+   shares would predict 0.50x, 0.33x and 0.25x. Joint ventures form for large contracts, so per-row
+   amounts sit above typical, which is what a repeated full value predicts and a share cannot.
+2. **Amounts within a joint venture do not differ like shares.** The ratio between the largest and
+   smallest is **1.03 at the median and never above 2.0**. Three firms splitting a contract would
+   differ by 2-3x.
+3. **Direct inspection agrees at every group size** — identical figures repeated across rows, with
+   occasional rounding wobble on one of them.
+
+Note that check 2 alone is not sufficient: an equal split would also produce near-identical amounts.
+Check 1 is the one that discriminates between the two explanations.
+
+Every median, history count and project position therefore runs through `cleaning.contract_grain()`
+first, while per-row output stays at row grain because that is genuinely what the extract is.
+
+**One group behaves differently.** 121 contracts (1.4% of joint ventures) carry 6+ supplier rows and
+show a median per-row amount of just 0.05x. 553 of their 1,010 rows are Individual Consultant
+Selection — batches of small consultant awards sharing one contract number, not shares. Their
+amounts are still repeated identically.
 
 ### 2.3 The representative row for a contract is the alphabetically-first supplier
 The amount on a joint-venture row is the **contract's** value, not that supplier's share, so any row
