@@ -13,8 +13,8 @@ where it adds the most value:
 Every record is scored **as if at the moment the contract was submitted**, using only information
 available at that point.
 
-**Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, and
-the risk model.** The anomaly check and final cohort assignment build on the interfaces below.
+**Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, the
+risk model, and the anomaly check.** Final cohort assignment builds on the interfaces below.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ the risk model.** The anomaly check and final cohort assignment build on the int
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest tests/ -q                                  # 88 tests, ~60s
+pytest tests/ -q                                  # 102 tests, ~70s
 jupyter lab notebooks/01_data_preparation.ipynb   # the analysis and reasoning
 ```
 
@@ -74,14 +74,17 @@ src/procurement_risk/
   pipeline.py   validate_and_enrich(record) -> EnrichedRecord     <- entry point
   rules.py      apply_rules(enriched) -> RuleOutcome
   model.py      build_target / train / score_record
+  anomaly.py    fit_detector / describe / apply_anomaly_override
   summary.py    descriptive summary + the data-quality register
 notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
 notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
 notebooks/03_risk_model.ipynb        leakage analysis, models, thresholds
+notebooks/04_anomaly_detection.ipynb  out-of-distribution check + explanations
 tools/build_notebook.py               regenerates notebook 01 (see note below)
 tools/build_rule_notebook.py          regenerates notebook 02
 tools/build_model_notebook.py         regenerates notebook 03
-tests/                                88 tests
+tools/build_anomaly_notebook.py       regenerates notebook 04
+tests/                                102 tests
 reports/data_quality_register.csv     generated
 ```
 
@@ -239,3 +242,41 @@ model — so the explanation comes from the model doing the scoring, not a stand
 **Limitation.** Every figure here measures agreement with a definition, never with reality. Since the
 label is fully computable from two columns, a production system would apply the rule rather than
 model it; what the model adds is a graded contextual ranking over the records the rules clear.
+
+## Anomaly detection
+
+An out-of-distribution check beside the model, not inside it. The model asks *"does this look like
+what we defined as high attention?"*; this asks *"does this look like anything we have seen before?"*
+
+**The Part 3 leakage rules deliberately do not apply.** That discipline existed because the label was
+computable from two of its own inputs. This detector is unsupervised — it never sees the label — so
+there is no target to leak into, and it uses the full feature set including amount and method. That
+is necessary, not merely allowed: the brief's own example explanation cites exactly those features.
+
+Isolation Forest, fitted on the **training years only**, at 1% contamination.
+
+| Split | Flagged | High-attention rate among flagged | Base rate |
+|---|---|---|---|
+| Train FY2020–22 | 1.00% | 0.228 | 0.042 |
+| Test FY2024–26 | **3.27%** | 0.142 | 0.033 |
+
+The rising flag rate is the finding, not a defect — the portfolio drifts away from the distribution
+the detector was fitted on, which is what an OOD check exists to reveal. A deployed version needs
+refitting on a schedule, with that rate monitored as an alarm in its own right.
+
+**Explanations are templated and deterministic, not generated.** The same contract must produce the
+same sentence at an audit two years from now, traceable to the values that caused it. This is a place
+where *not* using a language model is the engineering decision.
+
+> *"This contract is unusual for its training population: it has a supplier foreign to the borrower
+> country, combined with a non-competitive procurement method."*
+
+The first version reported "a single-supplier award" as the most unusual feature of nearly every
+flagged contract — 93% of contracts have one supplier. `np.searchsorted` defaults to `side="left"`,
+which counts values *strictly less than* the input, so the most common value landed at percentile 0
+and read as maximally extreme. The sentences were fluent, plausible and wrong; only reading the
+output caught it.
+
+Per the brief, a low-scoring but anomalous contract becomes `HIGH_ATTENTION`, never `ROUTINE`. The
+override only moves records **up** the precedence order. On the test years it promotes 1,991
+contracts whose high-attention rate is **2.5% against 0.7%** for low-risk records it does not flag.
