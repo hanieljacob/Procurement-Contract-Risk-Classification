@@ -7,3 +7,4 @@ jupyter>=1.0
 pytest>=8.0
 # Part 3 (already present in the base environment, pinned for reproducibility)
 scikit-learn>=1.4
+shap>=0.45
