@@ -13,8 +13,8 @@ where it adds the most value:
 Every record is scored **as if at the moment the contract was submitted**, using only information
 available at that point.
 
-**Implemented so far: ingestion, cleaning, feature preparation, and the deterministic rule engine.**
-The risk model, anomaly check and final cohort assignment build on the interfaces below.
+**Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, and
+the risk model.** The anomaly check and final cohort assignment build on the interfaces below.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ The risk model, anomaly check and final cohort assignment build on the interface
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest tests/ -q                                  # 71 tests, ~45s
+pytest tests/ -q                                  # 88 tests, ~60s
 jupyter lab notebooks/01_data_preparation.ipynb   # the analysis and reasoning
 ```
 
@@ -73,12 +73,15 @@ src/procurement_risk/
   features.py   ReferenceStats (fit) + engineer_features (transform)
   pipeline.py   validate_and_enrich(record) -> EnrichedRecord     <- entry point
   rules.py      apply_rules(enriched) -> RuleOutcome
+  model.py      build_target / train / score_record
   summary.py    descriptive summary + the data-quality register
 notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
 notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
+notebooks/03_risk_model.ipynb        leakage analysis, models, thresholds
 tools/build_notebook.py               regenerates notebook 01 (see note below)
 tools/build_rule_notebook.py          regenerates notebook 02
-tests/                                71 tests
+tools/build_model_notebook.py         regenerates notebook 03
+tests/                                88 tests
 reports/data_quality_register.csv     generated
 ```
 
@@ -194,3 +197,45 @@ means resolving genuine ambiguity upward, not manufacturing ambiguity the data h
 realised fraud, dispute or cancellation label, so there is no way to measure whether the 5,178
 flagged contracts are the right ones. The calibration guarantees an actionable queue and explicit
 reasoning; it cannot guarantee precision, and no threshold chosen from this data could.
+
+## Risk model
+
+Scores the 280,284 contracts the rule engine defers. **The label is defined, not observed** — this
+extract contains no realised fraud, dispute or cancellation, so the brief supplies a rule: *top
+quartile of the category-and-region peer group, and a non-competitive method*.
+
+**Both halves of that definition are columns we already hold**, so a model handed them scores a
+perfect AUC of 1.0000. That is target leakage, and it is measured rather than asserted — a test
+asserts the tautology exists, and a second asserts the shipped feature set does not reproduce it.
+
+Two further leaks had to be found by measurement:
+
+- `amount_vs_practice_median` is the amount against a *different* peer grouping — AUC 0.81 alone,
+  correlation 0.83 with the peer percentile.
+- `supplier_is_known` is deterministic: the placeholder supplier appears only on Individual
+  Consultant Selection, which is competitive, so **62,992 contracts (22.5%) are guaranteed
+  negatives**. Feature selection cannot fix this — the missingness of
+  `supplier_prior_contract_count` carries the same signal — so headline metrics are reported on both
+  populations.
+
+| Model | Test AUC | On records that *can* be positive | Precision @ top decile (base rate 0.033) |
+|---|---|---|---|
+| Gradient-boosted trees | 0.845 | 0.799 | **0.150** (4.5× lift) |
+| Logistic regression | 0.815 | 0.761 | 0.127 |
+
+Split: train FY2020–22, calibrate on FY2023, test once on FY2024–26. FY2027 quarantined as a
+seven-week stub. Calibration is Platt rather than isotonic — isotonic scores marginally better but
+collapses 51,783 distinct scores into 107 steps, flattening the threshold curve.
+
+**Threshold chosen on recall, as the brief requires**, and the cost stated plainly: reaching 90%
+recall means flagging **40% of the portfolio at 7.3% precision**. That is the evidence that this
+model should not be a standalone gate. The band is the useful output — `LOW` / `MEDIUM` / `HIGH`
+carry high-attention rates of **1.1% / 6.2% / 15.1%**, a 13× gradient that supports prioritising a
+queue.
+
+Per-record output is risk score, band, and the top three contributing features via SHAP on the tree
+model — so the explanation comes from the model doing the scoring, not a stand-in.
+
+**Limitation.** Every figure here measures agreement with a definition, never with reality. Since the
+label is fully computable from two columns, a production system would apply the rule rather than
+model it; what the model adds is a graded contextual ranking over the records the rules clear.

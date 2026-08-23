@@ -9,15 +9,16 @@ A pipeline that classifies World Bank contract awards into review cohorts
 it matters. Every record is scored **as if at the moment the contract was signed**, using only
 information available at that point.
 
-Implemented so far: ingestion, cleaning, feature preparation, and the deterministic rule engine. The
-risk model, anomaly check and final cohort assignment are not built yet.
+Implemented so far: ingestion, cleaning, feature preparation, the deterministic rule engine, and the
+risk model. The anomaly check and final cohort assignment are not built yet.
 
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # 71 tests, ~45s
+pytest tests/ -q                                   # 88 tests, ~60s
 python3 tools/build_notebook.py                    # regenerate notebook 01
 python3 tools/build_rule_notebook.py               # regenerate notebook 02
+python3 tools/build_model_notebook.py              # regenerate notebook 03
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -108,6 +109,29 @@ rules does not make it `ROUTINE`, and nothing here may assign `ROUTINE`.
   re-run the calibration table in notebook 02 and update the figures in `README.md`.
 - Rules that cannot fire on this data stay in the registry with `active=False` rather than being
   deleted, so the write-up can report a control with no coverage.
+
+## Risk model (`model.py`)
+
+The label is **defined, not observed** — no realised outcome exists in this data. It is computable
+from two columns we hold, so **leakage is the default outcome here and has to be actively
+prevented**. Three separate leaks were found by measurement:
+
+- the two columns the label names, plus `amount_vs_category_region_median`, `amount_usd` and
+  `log_amount`, which rebuild them — all listed in `LABEL_DEFINING_FEATURES`;
+- `amount_vs_practice_median`, the amount against a different peer grouping (AUC 0.81 alone);
+- `supplier_is_known`, which forces the label to zero for 22.5% of records.
+
+Before adding any feature, ask whether it can reconstruct the amount relative to its peer group, or
+the procurement method. If yes it is leakage, whatever its name suggests.
+`test_honest_feature_set_does_not_score_suspiciously_well` fails above AUC 0.90 as a tripwire.
+
+- **`structurally_negative` records cannot be fixed by feature selection.** Their missingness pattern
+  carries the same signal. Report headline metrics on both populations.
+- **`TrainedModel` has two column lists.** `source_columns` are read off a record;
+  `columns` are post-one-hot design names. Conflating them silently zeroed every categorical and cost
+  13 points of AUC while still returning plausible scores — `test_scoring_uses_source_columns_not_design_columns`
+  guards it.
+- Thresholds are chosen on the **validation year only** and applied unchanged to test.
 
 ## Conventions
 
