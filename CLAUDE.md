@@ -9,14 +9,15 @@ A pipeline that classifies World Bank contract awards into review cohorts
 it matters. Every record is scored **as if at the moment the contract was signed**, using only
 information available at that point.
 
-Implemented so far: ingestion, cleaning, feature preparation. The rule engine, risk model, anomaly
-check and cohort assignment are not built yet.
+Implemented so far: ingestion, cleaning, feature preparation, and the deterministic rule engine. The
+risk model, anomaly check and final cohort assignment are not built yet.
 
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # 38 tests, ~10s
-python3 tools/build_notebook.py                    # regenerate the notebook
+pytest tests/ -q                                   # 71 tests, ~45s
+python3 tools/build_notebook.py                    # regenerate notebook 01
+python3 tools/build_rule_notebook.py               # regenerate notebook 02
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/01_data_preparation.ipynb --ExecutePreprocessor.timeout=600
 ```
@@ -78,8 +79,32 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
   "unmapped method".
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
   history for these returns `None`, never `0`.
-- **The notebook is generated** by `tools/build_notebook.py` and regenerating **overwrites Jupyter
-  edits**. Edit one or the other, not both.
+- **Both notebooks are generated** — `tools/build_notebook.py` builds notebook 01,
+  `tools/build_rule_notebook.py` builds notebook 02 — and regenerating **overwrites Jupyter edits**.
+  Edit the builder or the notebook, not both.
+
+## Rule engine (`rules.py`)
+
+`apply_rules(enriched) -> RuleOutcome` either **decides** a record or **defers** it. `cohort is None`
+means every rule was evaluable and none fired, so the record proceeds to the model — clearing the
+rules does not make it `ROUTINE`, and nothing here may assign `ROUTINE`.
+
+- **Predicates are three-valued**: `True` fired, `False` did not, `None` could not be evaluated
+  because a feature it depends on is unknown. Build conjunctions with `_kleene_and`, never with
+  `and` — `False AND unknown` must be `False`. Poisoning conjunctions with any unknown operand sent
+  9,666 records to a human on a rule that could not have fired anyway.
+- **`None` resolves upward** to `HIGH_ATTENTION`, and the audit record names which control was blind
+  via `UNEVALUABLE::<rule_id>` reason codes.
+- **`NOT_ELIGIBLE` is derived from the FATAL flags**, never restated as predicates. Two definitions
+  of the same rule will drift.
+- A new rule needs `condition`, `threshold`, `rationale` **and** `why_hard_rule` — the last being why
+  it is deterministic policy rather than something the model should infer. `test_every_rule_is_fully_documented`
+  enforces this.
+- **Thresholds are calibrated on reviewable volume**, targeting 1–2% EXCEPTIONAL, and
+  `test_exceptional_volume_stays_reviewable` fails outside 1–3%. If you change a threshold, re-run the
+  calibration table in notebook 02 and update the figures in `README.md`.
+- Rules that cannot fire on this data stay in the registry with `active=False` rather than being
+  deleted, so the write-up can report a control with no coverage.
 
 ## Conventions
 

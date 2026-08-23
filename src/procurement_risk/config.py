@@ -305,3 +305,68 @@ TRAIN_FISCAL_YEARS: Final[tuple[int, ...]] = (2020, 2021, 2022)
 VALIDATION_FISCAL_YEARS: Final[tuple[int, ...]] = (2023,)
 TEST_FISCAL_YEARS: Final[tuple[int, ...]] = (2024, 2025, 2026)
 TRUNCATED_FISCAL_YEARS: Final[tuple[int, ...]] = (2027,)
+
+
+# --------------------------------------------------------------------------
+# Rule engine thresholds
+# --------------------------------------------------------------------------
+# Calibrated to a volume a senior reviewer could actually action. The brief
+# offers "more than five times the regional and category median" as an example.
+# Measured on this extract that flags 59,922 contracts -- 20.8% of the portfolio
+# -- because the amount distribution is heavy-tailed enough that 5x the median
+# sits at only the 78th percentile. A control routing a fifth of the portfolio
+# to senior review is not a control, so the thresholds below are set on
+# reviewable volume instead, and the 5x baseline is reported alongside them.
+#
+# Together these produce 4,750 EXCEPTIONAL records (1.65%), holding between
+# 1.43% and 2.24% in every fiscal year -- roughly 680 contracts a year.
+
+# Amount extremity is expressed as a PERCENTILE of the peer group, not as a
+# multiple of its median. A percentile is directly volume-controllable, is
+# stable as the distribution shifts, and does not silently change meaning when
+# a peer group's shape changes. Note the vintage quantile sketch has
+# whole-percentile resolution, so thresholds finer than 0.99 are not
+# representable -- a deliberate limit, since claiming 99.9th-percentile
+# precision from a 30-observation peer group would be false precision anyway.
+EXCEPTIONAL_AMOUNT_PERCENTILE: Final[float] = 0.99
+
+# Non-competitive award above this value. Direct selection is lawful and often
+# appropriate; it is the combination with scale that warrants a named reviewer.
+EXCEPTIONAL_NON_COMPETITIVE_AMOUNT: Final[float] = 2_000_000.0
+
+# A project's first contract sets precedent for everything that follows it, so
+# an outsized first award is worth confirming before the pattern is repeated.
+EXCEPTIONAL_FIRST_CONTRACT_RATIO: Final[float] = 20.0
+
+# Retained for completeness and reported as INACTIVE. The publisher derives
+# Fiscal Year from the signing date, so no record in this extract can fall
+# outside its own window and this rule cannot fire. It is kept as a guard for
+# unvalidated upstream data rather than deleted, because deleting it would hide
+# the fact that the control has no coverage here.
+EXCEPTIONAL_FY_WINDOW_DAYS: Final[int] = 0
+
+# Jurisdictions whose corporate registries provide little or no beneficial
+# ownership transparency. Assembled from the Tax Justice Network Financial
+# Secrecy Index (2022) and the EU list of non-cooperative jurisdictions.
+#
+# JUDGMENT CALL: this is used ONLY in combination with the supplier being
+# foreign to the borrower. A blanket "supplier from a high-risk country" rule --
+# which the brief offers as an option -- is incoherent on this dataset: the
+# borrowers are themselves overwhelmingly developing economies, so a
+# transparency-index cutoff would flag enormous volumes and would encode
+# geography rather than conduct. Measured, 1,360 contracts have suppliers
+# registered in these jurisdictions, but most are DOMESTIC -- Belize, Panama and
+# the Marshall Islands are borrowers in their own right. Only 329 are both
+# offshore-registered and foreign to the borrower, which is the pattern actually
+# worth a reviewer's time: value leaving a project through a vehicle whose
+# ownership cannot be established.
+#
+# A production deployment should replace this with an official list on a
+# maintained refresh cycle; the vintage is stated so the artefact can be aged.
+SECRECY_JURISDICTIONS: Final[frozenset[str]] = frozenset({
+    "Bahamas", "Barbados", "Belize", "Bermuda", "British Virgin Islands",
+    "Virgin Islands, British", "Cayman Islands", "Cyprus", "Gibraltar",
+    "Guernsey", "Isle of Man", "Jersey", "Liechtenstein", "Luxembourg",
+    "Malta", "Marshall Islands", "Mauritius", "Monaco", "Panama", "Seychelles",
+})
+SECRECY_JURISDICTIONS_VINTAGE: Final[str] = "TJN FSI 2022 / EU non-cooperative list"

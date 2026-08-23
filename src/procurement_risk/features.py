@@ -297,6 +297,7 @@ FEATURE_COLUMNS: tuple[str, ...] = (
     "days_into_fiscal_year",
     "fy_quarter",
     "is_competitive_method",
+    "supplier_in_secrecy_jurisdiction",
     "consortium_size",
 )
 

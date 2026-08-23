@@ -13,8 +13,8 @@ where it adds the most value:
 Every record is scored **as if at the moment the contract was submitted**, using only information
 available at that point.
 
-**Implemented so far: ingestion, cleaning, and feature preparation.** The rule engine, risk model,
-anomaly check and cohort assignment build on the interfaces below.
+**Implemented so far: ingestion, cleaning, feature preparation, and the deterministic rule engine.**
+The risk model, anomaly check and final cohort assignment build on the interfaces below.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ anomaly check and cohort assignment build on the interfaces below.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest tests/ -q                                  # 38 tests, ~10s
+pytest tests/ -q                                  # 71 tests, ~45s
 jupyter lab notebooks/01_data_preparation.ipynb   # the analysis and reasoning
 ```
 
@@ -72,10 +72,13 @@ src/procurement_risk/
   quality.py    DataQualityFlag vocabulary (FATAL / DEGRADED / NOTICE)
   features.py   ReferenceStats (fit) + engineer_features (transform)
   pipeline.py   validate_and_enrich(record) -> EnrichedRecord     <- entry point
+  rules.py      apply_rules(enriched) -> RuleOutcome
   summary.py    descriptive summary + the data-quality register
-notebooks/01_data_preparation.ipynb   analysis, reasoning and results
-tools/build_notebook.py               regenerates the notebook (see note below)
-tests/test_feature_pipeline.py        38 tests
+notebooks/01_data_preparation.ipynb   cleaning, features, data-quality register
+notebooks/02_rule_engine.ipynb        rule catalogue, calibration, cohort mix
+tools/build_notebook.py               regenerates notebook 01 (see note below)
+tools/build_rule_notebook.py          regenerates notebook 02
+tests/                                71 tests
 reports/data_quality_register.csv     generated
 ```
 
@@ -145,3 +148,47 @@ Four defects caught by asserting the batch and single-record paths agree on ever
 A fifth — the frozen benchmark's look-ahead — was found while calibrating exception thresholds, and
 is the reason benchmarks are now vintaged. Each has a regression test, including one asserting that
 no vintage cell can be derived from a contract signed in its own month or later.
+
+## Rule engine
+
+Every record passes through a deterministic engine before any model runs. It either **decides** a
+record or **defers** it — clearing every control does not make a record `ROUTINE`, only *not
+exceptional*, and `ROUTINE` is a verdict only the model gets to draw.
+
+| Outcome | Contracts | Share |
+|---|---|---|
+| `NOT_ELIGIBLE` | 13 | 0.00% |
+| `EXCEPTIONAL` | 4,750 | 1.65% |
+| `HIGH_ATTENTION` (safe default) | 2,762 | 0.96% |
+| Deferred to the model | 280,712 | 97.39% |
+
+`NOT_ELIGIBLE` needs no new logic — the brief's not-eligible conditions *are* the ten FATAL
+data-quality flags the validator already raises, so the engine reads them rather than restating them
+as predicates free to drift.
+
+**The brief's example threshold does not survive measurement.** It suggests flagging contracts above
+five times the category-and-region median; that flags **20.8% of this portfolio**, because amounts
+are heavy-tailed enough that 5× the median is only the 78th percentile. Amount extremity is therefore
+expressed as a **percentile of the peer group**, which is directly volume-controllable. All four
+active rules together produce 1.65%, holding between 1.4% and 2.2% in every complete fiscal year.
+
+**Country risk is deliberately narrow.** A blanket transparency-index rule would encode geography
+rather than conduct and is incoherent when the borrowers are themselves developing economies. Of
+1,360 contracts with suppliers in secrecy jurisdictions, 962 are *domestic* — Belize, Panama and the
+Marshall Islands are borrowers in their own right. Only the 329 that are offshore **and** foreign to
+the borrower are flagged.
+
+**One rule cannot fire.** `SIGNED_OUTSIDE_FISCAL_YEAR_WINDOW` is structurally inert, because the
+publisher derives fiscal year from the signing date. It is retained as a guard for unvalidated
+upstream data and reported as a control with no coverage, rather than quietly deleted.
+
+**Three-valued logic.** A predicate returns fired / did-not-fire / **could-not-evaluate**, and the
+third resolves upward to `HIGH_ATTENTION`. Getting the conjunction wrong — treating any unknown
+operand as poisoning the whole rule — sent 9,666 records to a human because a country code was
+missing, on a rule that could not have fired anyway. `False AND unknown` is `False`: conservatism
+means resolving genuine ambiguity upward, not manufacturing ambiguity the data has already settled.
+
+**Limitation.** Thresholds are calibrated on *volume*, not outcomes. This extract contains no
+realised fraud, dispute or cancellation label, so there is no way to measure whether the 4,750
+flagged contracts are the right ones. The calibration guarantees an actionable queue and explicit
+reasoning; it cannot guarantee precision, and no threshold chosen from this data could.

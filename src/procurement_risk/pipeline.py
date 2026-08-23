@@ -171,6 +171,7 @@ def validate_and_enrich(
     norm["fiscal_year"] = fiscal_year
 
     # ---- supplier domesticity: tri-state --------------------------------
+    supplier_country = normalize_text(_get(record, "supplier_country"))
     borrower_code = normalize_country_code(_get(record, "borrower_country_code"))
     supplier_code = normalize_country_code(_get(record, "supplier_country_code"))
     regional = is_regional_borrower(borrower_country, borrower_code)
@@ -230,6 +231,10 @@ def validate_and_enrich(
         "fy_quarter": min(days_into_fy // 91 + 1, 4),
         "is_competitive_method": (
             None if method_class is None else method_class == config.COMPETITIVE
+        ),
+        "supplier_in_secrecy_jurisdiction": (
+            None if supplier_country is None
+            else supplier_country in config.SECRECY_JURISDICTIONS
         ),
         "consortium_size": consortium_size,
     }
