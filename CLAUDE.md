@@ -84,6 +84,11 @@ guess — and downstream must route them to HIGH_ATTENTION, not ROUTINE.
 - **Procurement methods must be looked up via `config.method_lookup_key()`**, never by raw string.
   The source spells CQS with a double space; exact-string matching failed 15,956 records (5.5%) as
   "unmapped method".
+- **Supplier identity keys on the normalised NAME, not `Supplier ID`** — and the reason is
+  fragmentation, not that the ID is unreliable. `ERNST & YOUNG` appears under 39 different supplier
+  IDs and `CFAO MOTORS` under 34, so keying on ID would present an established firm as 39 first-time
+  suppliers into a rule that penalises exactly that. Name-merging affects 0.30% of IDs; ID-fragmenting
+  affects 7.35% of names. See `ASSUMPTIONS.md` §3.2.
 - **`INDIVIDUAL CONSULTANT` is a placeholder, not a supplier** — 63,603 rows (22.1%). Supplier
   history for these returns `None`, never `0`. Note this is currently *too* conservative: `Supplier
   ID` identifies 6,474 of these individuals across projects, so a quarter of them have recoverable

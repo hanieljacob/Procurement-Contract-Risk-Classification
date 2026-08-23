@@ -88,13 +88,28 @@ not make the *supplier* unidentifiable, and `Supplier ID` was never re-examined.
 see §9.2.
 
 ### 3.2 The normalised supplier *name* is the entity key, not `Supplier ID`
-183,980 IDs for 121,914 names, and 53,905 of those IDs belong to the placeholder alone. For *named*
-suppliers the resolved name is the better key, since the same firm appears under several IDs.
+**Both keys fail, in opposite directions — and the direction is what decides it.**
 
-**This does not mean the ID is worthless, which is what was originally inferred here.** For the
-placeholder population it is the only identifier available, and it works: 6,474 individuals appear
-more than once and 39.8% of those span multiple projects. The right design uses the name where it
-resolves and the ID where it does not — see §9.2.
+Excluding the placeholder there are 130,074 supplier IDs for 117,945 names, so the ID does group
+repeat contracts: 26.2% of IDs appear on more than one contract, one of them on 728. It is a real
+vendor identifier, not a per-award reference.
+
+The problem is *fragmentation*. Keying on ID splits one firm across many IDs — 7.35% of names map to
+more than one — while keying on name merges distinct firms sharing a name, which affects only 0.30%
+of IDs. Fragmentation is **24× more common**, and it errs in the worse direction:
+
+> **ERNST & YOUNG appears under 39 different supplier IDs. CFAO MOTORS under 34.** Keying on ID would
+> treat Ernst & Young as 39 unrelated first-time suppliers — and since `supplier_prior_contract_count`
+> feeds an EXCEPTIONAL rule, that turns an established firm into 39 apparent newcomers.
+
+So the normalised name is the key, because merging a few same-named firms is less damaging than
+fragmenting the large ones.
+
+**An earlier version of this justified the choice badly**, citing 183,980 IDs against 121,914 names
+as evidence the ID was unreliable. That gap is almost entirely the placeholder: strip it out and it
+falls from ~62,000 to ~8,000. The decision was right; the argument for it was not.
+
+For the placeholder population the ID is the *only* identifier available, and it works — see §9.2.
 
 **Limitation:** matching is exact-after-normalisation. Genuine variants ("ACME LTD" vs "ACME COMPANY
 LTD") remain distinct entities. Proper resolution would need fuzzy matching and beneficial-ownership
