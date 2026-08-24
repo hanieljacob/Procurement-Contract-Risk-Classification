@@ -3,10 +3,10 @@
 The risk model answers "does this look like the contracts we defined as high
 attention?". This answers a different question: "does this look like *anything*
 we have seen before?". A contract can score low on the first and still fail the
-second -- an unfamiliar shape the model has no basis to judge -- and the brief is
-explicit that such a record becomes HIGH_ATTENTION rather than ROUTINE.
+second -- an unfamiliar shape the model has no basis to judge. Such a record
+becomes HIGH_ATTENTION rather than ROUTINE.
 
-**The Part 3 leakage discipline deliberately does not apply here.** That existed
+**The model's leakage discipline deliberately does not apply here.** That existed
 because the label was computable from two of its own inputs, so a supervised
 model trained on them learned a tautology. This detector is unsupervised: it
 never sees the label, so there is no target to leak into. It therefore uses the
@@ -233,7 +233,7 @@ def fit_detector(
 ) -> AnomalyDetector:
     """Fit on the TRAINING years only.
 
-    The brief says to train on model-assessment-eligible records; restricting
+    The detector trains on model-assessment-eligible records. Restricting
     further to the training fiscal years keeps the same discipline as everything
     else in the pipeline. "Unusual relative to the training population" is only
     meaningful if the training population predates what is being scored --
@@ -279,7 +279,7 @@ def assess(detector: AnomalyDetector, record: pd.DataFrame) -> dict:
 def apply_anomaly_override(cohort: "Cohort", anomaly_flag: bool) -> "Cohort":
     """A low-scoring but anomalous contract becomes HIGH_ATTENTION, never ROUTINE.
 
-    The brief requires this, and the reasoning is worth keeping in view: a low
+    The reasoning is worth keeping in view: a low
     risk score on an out-of-distribution record is not evidence of low risk. It
     means the model was asked about something unlike anything it was trained on,
     and a confident answer there is worth less than no answer at all. The

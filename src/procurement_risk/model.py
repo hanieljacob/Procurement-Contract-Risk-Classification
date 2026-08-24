@@ -45,7 +45,7 @@ from . import config
 
 MODEL_VERSION = "v1.0"
 
-# The brief's definition, in one place so it cannot drift.
+# The label definition, in one place so it cannot drift.
 TARGET_QUANTILE = 0.75
 
 # Columns the label is built from. Withheld from training: including them makes
@@ -94,7 +94,7 @@ RISK_BANDS = ("LOW", "MEDIUM", "HIGH")
 
 
 def build_target(df: pd.DataFrame) -> pd.Series:
-    """The brief's label: top-quartile amount for its peer group AND non-competitive.
+    """The label: top-quartile amount for its peer group AND non-competitive.
 
     The percentile comes from the monthly benchmark vintages, so "top quartile"
     means top quartile *as of the month the contract was signed* -- consistent
@@ -282,7 +282,7 @@ class _MedianImputerWithIndicator:
 
 
 # ---------------------------------------------------------------------------
-# Evaluation -- the three measures the brief names
+# Evaluation -- calibration, top-decile precision, and hit rate
 # ---------------------------------------------------------------------------
 
 def precision_at_top_decile(y_true, scores) -> float:
@@ -358,7 +358,7 @@ def threshold_table(y_true, scores) -> pd.DataFrame:
 def choose_threshold(y_true, scores, min_recall: float = 0.90) -> float:
     """Smallest flagged volume that still catches `min_recall` of positives.
 
-    Deliberately asymmetric, as the brief requires: missing a genuinely
+    Deliberately asymmetric: missing a genuinely
     high-attention contract costs more than over-flagging a routine one. So
     recall is the *constraint* and reviewer volume is the price -- we take the
     tightest cut-off that still clears the recall floor, rather than maximising

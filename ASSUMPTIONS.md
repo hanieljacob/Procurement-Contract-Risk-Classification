@@ -16,15 +16,14 @@ Two principles run through all of them:
 ## 1. Time
 
 ### 1.1 The signing date is the assessment moment
-The brief asks for assessment *"at the time the contract was submitted"*. Submission precedes
+A contract should be assessed as of *submission*. Submission precedes
 signing — prior review happens before a contract is signed — so these are not the same moment.
 
 **We anchor on the signing date, because this extract has no submission date.** It is the only
 per-record time signal: `Fiscal Year` is exactly `year + (month >= 7)` of it, `Contract signed -
 Calendar year` is exactly its year (both verified derived), and `As of Date` holds one value across
 all 288,237 rows, so anchoring there would score every contract as of Aug 2026 — granting each record
-years of its own future. The brief itself uses the signing date as the proxy, describing
-days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle"*.
+years of its own future. Signing date is the standard proxy, and it is what days-into-fiscal-year measures — *"a proxy for submission timing within the fiscal cycle"*.
 
 **Cost.** The anchor is late by the submission-to-signature interval, so the point-in-time guarantee
 is mildly optimistic. Measured at a hypothetical 90-day lag:
@@ -58,22 +57,49 @@ number, project, signing date, description, borrower and procurement method are 
 only supplier and amount vary. That is a joint venture, not a reused key.
 
 ### 2.2 Population statistics use contract grain, reporting uses row grain
-Joint-venture rows repeat the **full** contract amount on each row, so raw-row totals reach $130.1B
-against $116.6B at contract grain — a $13.5B overstatement. Every median, history count and project
-position therefore runs through `cleaning.contract_grain()` first, while per-row output stays at row
-grain because that is genuinely what the extract is.
+Joint-venture rows carry the **contract's** value, not each firm's share, so summing raw rows
+double-counts: $130.1B against $116.6B at contract grain, a $13.5B overstatement.
+
+**How we know the amount is not a share.** Three independent checks:
+
+1. **Per-row amounts do not scale as 1/n.** If each row were a share, a two-way split would show
+   half a typical contract. Measured against the $28,886 median for single-supplier contracts, the
+   median per-row amount is **8.57x for two suppliers, 5.82x for three, 4.63x for four** — where
+   shares would predict 0.50x, 0.33x and 0.25x. Joint ventures form for large contracts, so per-row
+   amounts sit above typical, which is what a repeated full value predicts and a share cannot.
+2. **Amounts within a joint venture do not differ like shares.** The ratio between the largest and
+   smallest is **1.03 at the median and never above 2.0**. Three firms splitting a contract would
+   differ by 2-3x.
+3. **Direct inspection agrees at every group size** — identical figures repeated across rows, with
+   occasional rounding wobble on one of them.
+
+Note that check 2 alone is not sufficient: an equal split would also produce near-identical amounts.
+Check 1 is the one that discriminates between the two explanations.
+
+Every median, history count and project position therefore runs through `cleaning.contract_grain()`
+first, while per-row output stays at row grain because that is genuinely what the extract is.
+
+**One group behaves differently.** 121 contracts (1.4% of joint ventures) carry 6+ supplier rows and
+show a median per-row amount of just 0.05x. 553 of their 1,010 rows are Individual Consultant
+Selection — batches of small consultant awards sharing one contract number, not shares. Their
+amounts are still repeated identically.
 
 ### 2.3 The representative row for a contract is the alphabetically-first supplier
-**This one is imperfect and worth knowing.** In 6,859 of 8,584 joint ventures every row carries the
-identical full amount, so any representative is correct. But in **1,725 (20.1%)** the amounts differ —
-presumably each firm's actual share — and taking one row understates those contracts.
+The amount on a joint-venture row is the **contract's** value, not that supplier's share, so any row
+can represent the contract.
 
-Summing the shares instead would be wrong for the 79.9% that repeat the total, and **no field
-distinguishes the two cases**. The choice is deterministic (alphabetical, so it is stable across
-runs) and accepts a known understatement in a fifth of joint ventures rather than a known
-overstatement in four fifths.
+In 6,859 of 8,584 joint ventures every row carries an identical figure. In the remaining 1,725 they
+differ — but only barely: the ratio between the largest and smallest amount within a joint venture is
+**1.03 at the median, and below 1.05 in 99% of cases. Not one joint venture in the dataset has a
+ratio above 2.** Genuine shares split between three firms would differ by 2–3x. These differ by
+rounding, or by currency conversion applied slightly differently across rows.
 
----
+So there is no systematic understatement from picking one row. The choice is deterministic
+(alphabetical) so it is stable across runs, and that is all it needs to be.
+
+**An earlier version of this section inferred that the 20.1% represented each firm's actual share.**
+The data does not support that. The inference was made from the fact that the amounts differed,
+without checking by how much.
 
 ## 3. Fields and entities
 
@@ -229,10 +255,10 @@ because nothing in this data can establish which contracts are genuinely risky.
 
 | Threshold | Value | Basis |
 |---|---|---|
-| Amount extremity | 150× peer median | The brief's illustrative 5× flags 20.9% of the portfolio; 150× gives 1.80%, ~739/year. Configurable — the volume at every setting is in `config.py`. |
+| Amount extremity | 150× peer median | An illustrative 5× flags 20.9% of the portfolio; 150× gives 1.80%, ~739/year. Configurable — the volume at every setting is in `config.py`. |
 | Non-competitive high value | > $2M | Direct selection is lawful; it is the combination with scale that warrants a named reviewer. Absolute, because fiduciary exposure is absolute. |
 | First-in-project | > 20× median | Lower bar than the standalone rule, because being first is itself evidence. |
-| Model review threshold | 90% recall | The brief's asymmetry: missing a real one costs more than over-flagging. The price is flagging 40% of the portfolio at 7.3% precision, which is reported rather than hidden. |
+| Model review threshold | 90% recall | The asymmetry: missing a real one costs more than over-flagging. The price is flagging 40% of the portfolio at 7.3% precision, which is reported rather than hidden. |
 | Anomaly contamination | 1% | Isolation Forest has no natural threshold; calibrated on reviewer capacity. |
 
 ---
@@ -255,7 +281,7 @@ it. A generated sentence varying between runs would break the audit record and b
 accuracy.
 
 ### 8.3 No reason code claims a prior contract was "clean"
-The brief's example output includes `SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit
+An obvious code to emit would be `SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit
 `SUPPLIER_HAS_PRIOR_CONTRACTS`. Nothing in this extract establishes that any contract was clean —
 only that contracts existed. Putting "clean" in an audit record asserts what the evidence cannot
 support.

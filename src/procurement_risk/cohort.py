@@ -14,9 +14,8 @@ record that cannot be regenerated is not an audit record. Every stage below is
 already pure with respect to its artefacts, and this is the last place that
 could have broken it.
 
-**Safe default.** The brief is explicit: a record with missing data, an
-unavailable model result, or conflicting rule outputs defaults to HIGH_ATTENTION
-rather than ROUTINE. `ROUTINE` is a positive claim -- "we looked, and this is
+**Safe default.** A record with missing data, an unavailable model result, or
+conflicting rule outputs defaults to HIGH_ATTENTION rather than ROUTINE. `ROUTINE` is a positive claim -- "we looked, and this is
 ordinary" -- and it is only ever reached when every stage completed and none of
 them objected. Any failure anywhere resolves upward, with a reason code saying
 what failed.
@@ -50,8 +49,7 @@ class ReasonCode(str, Enum):
     two cannot: the *affirmative* reasons a record was found ordinary.
 
     That asymmetry matters. A reviewer told only what did NOT fire learns
-    nothing; the brief's own example output is a routine contract carrying
-    positive codes, and a cohort assignment that cannot say why something is
+    nothing. A routine contract needs positive codes, and a cohort assignment that cannot say why something is
     routine is not auditable in the direction that matters most, since ROUTINE is
     the cohort that receives the least human attention.
     """
@@ -82,7 +80,7 @@ class ReasonCode(str, Enum):
     MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
 
 
-# NOTE ON THE BRIEF'S EXAMPLE. Its sample output lists
+# NOTE ON WORDING. An obvious code to emit here would be
 # "SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS". We emit SUPPLIER_HAS_PRIOR_CONTRACTS and
 # drop the word "clean" deliberately: nothing in this dataset establishes that
 # any prior contract was clean. There are no findings, disputes, cancellations or

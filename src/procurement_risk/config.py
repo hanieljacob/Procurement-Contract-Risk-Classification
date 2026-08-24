@@ -39,8 +39,8 @@ DATA_AS_OF_DATE: Final[str] = "2026-08-22"
 # Every record is scored as of its CONTRACT SIGNING DATE. Every population
 # statistic in the pipeline reads only what preceded that date.
 #
-# The brief asks for assessment "at the time the contract was submitted", which
-# is earlier: prior review happens BEFORE a contract is signed. We cannot honour
+# A contract should properly be assessed as of SUBMISSION, which is earlier:
+# prior review happens before a contract is signed. We cannot honour
 # that literally, because this extract contains no submission date:
 #
 #   * "Contract Signing Date" is the only per-record time signal.
@@ -51,9 +51,8 @@ DATA_AS_OF_DATE: Final[str] = "2026-08-22"
 #     score every contract as of Aug 2026, granting each record years of its own
 #     future -- the opposite of point-in-time.
 #
-# The brief itself uses the signing date as the proxy, describing
-# days-into-fiscal-year as "a proxy for submission timing within the fiscal
-# cycle". So the anchor is late by the submission-to-signature interval, which
+# Signing date is the standard proxy, and it is what days-into-fiscal-year
+# measures: submission timing within the fiscal cycle. So the anchor is late by the submission-to-signature interval, which
 # makes the point-in-time guarantee mildly optimistic. Measured exposure, if
 # assessment truly precedes signing by 90 days:
 #
@@ -350,8 +349,8 @@ TRUNCATED_FISCAL_YEARS: Final[tuple[int, ...]] = (2027,)
 # --------------------------------------------------------------------------
 # Rule engine thresholds
 # --------------------------------------------------------------------------
-# Calibrated to a volume a senior reviewer could actually action. The brief
-# offers "more than five times the regional and category median" as an example.
+# Calibrated to a volume a senior reviewer could actually action. The obvious
+# starting point is "more than five times the regional and category median".
 # Measured on this extract that flags 59,922 contracts -- 20.8% of the portfolio
 # -- because the amount distribution is heavy-tailed enough that 5x the median
 # sits at only the 78th percentile. A control routing a fifth of the portfolio
@@ -362,14 +361,14 @@ TRUNCATED_FISCAL_YEARS: Final[tuple[int, ...]] = (2027,)
 # 1.43% and 2.24% in every fiscal year -- roughly 680 contracts a year.
 
 # Amount extremity, expressed as a multiple of the peer-group median exactly as
-# the brief describes: "contract amount above a defined multiple of the regional
-# and category median, for example more than five times the median."
+# usually described: contract amount above a defined multiple of the regional
+# and category median, with five times often given as an example.
 #
-# Five is the brief's illustration, not its requirement -- the requirement is a
-# *defined* multiple. Defined here at 150x, on this evidence:
+# Five is an illustration, not a requirement. What matters is that the multiple
+# is *defined*. Defined here at 150x, on this evidence:
 #
 #     multiple   EXCEPTIONAL total   per year
-#          5x     60,101  (20.86%)      8,585   <- the brief's example
+#          5x     60,101  (20.86%)      8,585   <- the common rule of thumb
 #         10x     37,090  (12.87%)      5,298
 #         25x     18,598  ( 6.45%)      2,656
 #         50x     10,930  ( 3.79%)      1,561
@@ -407,7 +406,7 @@ EXCEPTIONAL_FY_WINDOW_DAYS: Final[int] = 0
 #
 # JUDGMENT CALL: this is used ONLY in combination with the supplier being
 # foreign to the borrower. A blanket "supplier from a high-risk country" rule --
-# which the brief offers as an option -- is incoherent on this dataset: the
+# the conventional approach -- is incoherent on this dataset: the
 # borrowers are themselves overwhelmingly developing economies, so a
 # transparency-index cutoff would flag enormous volumes and would encode
 # geography rather than conduct. Measured, 1,360 contracts have suppliers

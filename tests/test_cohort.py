@@ -1,6 +1,6 @@
 """Tests for final cohort assignment and the audit record.
 
-The two properties the brief demands: the same input must always give the same
+The two properties that matter: the same input must always give the same
 output, and nothing may reach ROUTINE by accident.
 """
 
@@ -57,7 +57,7 @@ def raw_records():
 
 
 # ---------------------------------------------------------------------------
-# The schema the brief specifies
+# The required output schema
 # ---------------------------------------------------------------------------
 
 def test_output_contains_every_required_field(artefacts, raw_records):
@@ -146,7 +146,7 @@ class _BrokenModel:
 
 
 def test_unavailable_model_lands_in_high_attention_not_routine(artefacts, raw_records):
-    """The brief: an unavailable model result must default to HIGH_ATTENTION."""
+    """An unavailable model result must default to HIGH_ATTENTION."""
     broken = PipelineArtefacts(stats=artefacts.stats, model=_BrokenModel(),
                                detector=artefacts.detector)
     seen, flagged_unavailable = set(), 0
@@ -213,7 +213,7 @@ def test_unknown_supplier_history_is_reported_as_unknown(artefacts):
 
 
 def test_no_reason_code_claims_prior_contracts_were_clean():
-    """The brief's example says SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS.
+    """An obvious code to emit would be SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS.
 
     Nothing in this extract establishes that any contract was clean -- there are
     no findings, disputes or cancellations, only that contracts existed. Putting

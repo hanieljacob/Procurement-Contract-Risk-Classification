@@ -103,7 +103,7 @@ def test_pipeline_internals_are_not_offered_as_reasons(detector):
 
 
 # ---------------------------------------------------------------------------
-# The override the brief requires
+# The anomaly override
 # ---------------------------------------------------------------------------
 
 def test_anomalous_routine_becomes_high_attention():
