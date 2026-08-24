@@ -141,7 +141,7 @@ EXCEPTIONAL_RULES: tuple[Rule, ...] = (
                   "procurement category and region, as that median stood when the contract "
                   "was signed",
         threshold=f"{config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE:.0f}x the peer-group median "
-                  f"(configurable; the brief's illustrative 5x flags 20.9% of the portfolio)",
+                  f"(configurable; an illustrative 5x flags 20.9% of the portfolio)",
         rationale="An award far outside its peer group is either genuinely unusual work "
                   "or a mis-specified one. Both warrant a look before signature, and the "
                   "peer group is what makes the comparison fair -- a $500k consultancy in "
@@ -150,8 +150,8 @@ EXCEPTIONAL_RULES: tuple[Rule, ...] = (
         why_hard_rule="A control cannot be a model output: the threshold has to be a "
                       "stated policy that survives retraining, and a reviewer has to be "
                       "able to tell the borrower which number their contract exceeded. "
-                      "The multiple is the parameter -- the brief asks for 'a defined "
-                      "multiple' and offers five as an illustration. Five would flag 20.9% "
+                      "The multiple is the parameter: what matters is that it is "
+                      "*defined*, and five is only a common illustration. Five would flag 20.9% "
                       "of this portfolio, because amounts are heavy-tailed enough that 5x "
                       "the median is only the 78th percentile; defined here at 150x, which "
                       "yields a queue of roughly 739 contracts a year.",

@@ -13,7 +13,7 @@ where it adds the most value:
 Every record is scored **as of its contract signing date**, using only information
 available at that point.
 
-The brief asks for assessment *"at the time the contract was submitted"*, which is earlier — prior
+A contract is assessed at *submission*, which is earlier than signing — prior
 review happens before a contract is signed. That cannot be honoured literally here: **the extract
 contains no submission date.** The signing date is the only per-record time signal; `Fiscal Year` and
 `Contract signed - Calendar year` are both provably derived from it, and `As of Date` holds a single
@@ -177,13 +177,12 @@ exceptional*, and `ROUTINE` is a verdict only the model gets to draw.
 | `HIGH_ATTENTION` (safe default) | 2,762 | 0.96% |
 | Deferred to the model | 280,284 | 97.24% |
 
-`NOT_ELIGIBLE` needs no new logic — the brief's not-eligible conditions *are* the ten FATAL
-data-quality flags the validator already raises, so the engine reads them rather than restating them
+`NOT_ELIGIBLE` needs no new logic — the not-eligible conditions *are* the ten FATAL data-quality
+flags the validator already raises, so the engine reads them rather than restating them
 as predicates free to drift.
 
-**The multiple is the parameter.** The brief asks for contracts above *"a defined multiple of the
-regional and category median, for example more than five times"* — five being the illustration, not
-the requirement. Defining it is the judgment work: at 5× the control flags **20.9% of the portfolio**,
+**The multiple is the parameter.** The rule flags contracts above a defined multiple of the
+category-and-region median. Defining that multiple is the judgment work: at 5× the control flags **20.9% of the portfolio**,
 about 8,585 contracts a year, because amounts are heavy-tailed enough that 5× the median is only the
 78th percentile. Defined at **150×** (`config.EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE`), it yields ~739 a
 year. All four active rules together produce 1.80%, holding between 1.6% and 2.2% in every complete
@@ -213,7 +212,7 @@ reasoning; it cannot guarantee precision, and no threshold chosen from this data
 ## Risk model
 
 Scores the 280,284 contracts the rule engine defers. **The label is defined, not observed** — this
-extract contains no realised fraud, dispute or cancellation, so the brief supplies a rule: *top
+extract contains no realised fraud, dispute or cancellation, so the label is defined by rule: *top
 quartile of the category-and-region peer group, and a non-competitive method*.
 
 **Both halves of that definition are columns we already hold**, so a model handed them scores a
@@ -239,7 +238,7 @@ Split: train FY2020–22, calibrate on FY2023, test once on FY2024–26. FY2027 
 seven-week stub. Calibration is Platt rather than isotonic — isotonic scores marginally better but
 collapses 51,783 distinct scores into 107 steps, flattening the threshold curve.
 
-**Threshold chosen on recall, as the brief requires**, and the cost stated plainly: reaching 90%
+**Threshold chosen on recall**, and the cost stated plainly: reaching 90%
 recall means flagging **40% of the portfolio at 7.3% precision**. That is the evidence that this
 model should not be a standalone gate. The band is the useful output — `LOW` / `MEDIUM` / `HIGH`
 carry high-attention rates of **1.1% / 6.2% / 15.1%**, a 13× gradient that supports prioritising a
@@ -257,10 +256,10 @@ model it; what the model adds is a graded contextual ranking over the records th
 An out-of-distribution check beside the model, not inside it. The model asks *"does this look like
 what we defined as high attention?"*; this asks *"does this look like anything we have seen before?"*
 
-**The Part 3 leakage rules deliberately do not apply.** That discipline existed because the label was
+**The model's leakage rules deliberately do not apply.** That discipline existed because the label was
 computable from two of its own inputs. This detector is unsupervised — it never sees the label — so
 there is no target to leak into, and it uses the full feature set including amount and method. That
-is necessary, not merely allowed: the brief's own example explanation cites exactly those features.
+is necessary: a useful explanation cites exactly those features.
 
 Isolation Forest, fitted on the **training years only**, at 1% contamination.
 
@@ -286,7 +285,7 @@ which counts values *strictly less than* the input, so the most common value lan
 and read as maximally extreme. The sentences were fluent, plausible and wrong; only reading the
 output caught it.
 
-Per the brief, a low-scoring but anomalous contract becomes `HIGH_ATTENTION`, never `ROUTINE`. The
+A low-scoring but anomalous contract becomes `HIGH_ATTENTION`, never `ROUTINE`. The
 override only moves records **up** the precedence order. On the test years it promotes 1,991
 contracts whose high-attention rate is **2.5% against 0.7%** for low-risk records it does not flag.
 
@@ -304,7 +303,7 @@ audit record out.
 
 **HIGH_ATTENTION at 41% is the direct cost of the conservative threshold**, not an accident. Reaching
 90% recall on the risk model means flagging roughly 40% of the portfolio (see the risk-model section),
-and the brief is explicit that safe default behaviour matters more than maximising the routine share.
+and safe default behaviour matters more than maximising the routine share.
 A real deployment would negotiate that recall floor against reviewer capacity — the threshold is one
 constant, and the trade-off table in notebook 03 prices every alternative.
 
@@ -317,7 +316,7 @@ without being so.
 **Safe default, tested by breaking things.** Asserting that failures resolve to `HIGH_ATTENTION` is
 easy; the test deliberately breaks the model and confirms that zero records reach `ROUTINE`.
 
-**Reason codes state what is known and never more.** The brief's example output includes
+**Reason codes state what is known and never more.** An obvious code to emit would be
 `SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit `SUPPLIER_HAS_PRIOR_CONTRACTS` and drop *clean*
 deliberately: nothing in this extract establishes that any contract was clean — there are no
 findings, disputes or cancellations, only that contracts existed. Every code is tri-state, so an
@@ -332,15 +331,14 @@ disagreements in 600); without it, 8 in 600 resolve conservatively and say why.
 ## The assessment anchor
 
 Everything in this pipeline is anchored on the **contract signing date** (`config.ASSESSMENT_ANCHOR`).
-The brief asks for assessment at *submission*, which is earlier. The gap is real, unfixable from this
+Assessment happens at *submission*, which is earlier than signing. The gap is real, unfixable from this
 data, and small but not zero — so it is stated rather than glossed.
 
 **Why signing:** there is no submission date in the extract. Of the four date-ish columns, `Fiscal
 Year` is exactly `year + (month >= 7)` of the signing date and `Contract signed - Calendar year` is
 exactly its year — both verified derived. `As of Date` is a single constant (`2026-08-22`), the
 publisher's snapshot; anchoring to it would score every contract as of Aug 2026, granting each record
-years of its own future. The brief itself treats signing date as the proxy, describing
-days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle"*.
+years of its own future. Signing date is the standard proxy, and it is what days-into-fiscal-year measures — *"a proxy for submission timing within the fiscal cycle"*.
 
 **Measured exposure**, if assessment truly precedes signing by 90 days:
 
@@ -350,5 +348,5 @@ days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle
 | Supplier history | **~1.2** extra prior contracts (mean) | Small in aggregate, decisive at the boundary: it can flip `is_first_contract_in_project` or `supplier_prior_contract_count == 0`, both of which feed an EXCEPTIONAL rule |
 
 `config.ASSESSMENT_LAG_DAYS` exists and is deliberately **0**. Shifting every as-of lookup earlier
-would conform to the brief's wording, but no lag value is supportable from this data — that would
+would be more literally correct, but no lag value is supportable from this data — that would
 trade a stated assumption for an invented one.

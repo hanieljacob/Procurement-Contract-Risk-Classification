@@ -169,7 +169,7 @@ def test_a_fired_rule_outranks_an_unevaluable_one():
 # ---------------------------------------------------------------------------
 
 def test_every_rule_is_fully_documented():
-    """The brief requires condition, threshold and why-it-is-a-rule for each."""
+    """Every rule needs a condition, a threshold and a why-it-is-a-rule."""
     for entry in rule_catalogue():
         assert entry["threshold"], f"{entry['rule_id']} has no stated threshold"
         for field in ("condition", "rationale", "why_hard_rule"):
@@ -177,7 +177,7 @@ def test_every_rule_is_fully_documented():
 
 
 def test_amount_multiple_is_configurable(monkeypatch):
-    """The brief asks for "a defined multiple"; the multiple is the parameter.
+    """The multiple is the parameter, and what matters is that it is defined.
 
     Five is its illustration, not its requirement -- and five would flag 20.9% of
     this portfolio, because amounts are heavy-tailed enough that 5x the median is
@@ -187,7 +187,7 @@ def test_amount_multiple_is_configurable(monkeypatch):
     assert apply_rules(record).proceeds_to_model            # below the 150x default
 
     monkeypatch.setattr(config, "EXCEPTIONAL_AMOUNT_MEDIAN_MULTIPLE", 5.0)
-    assert apply_rules(record).cohort is Cohort.EXCEPTIONAL  # fires at the brief's 5x
+    assert apply_rules(record).cohort is Cohort.EXCEPTIONAL  # fires at an illustrative 5x
 
 
 def test_rule_ids_are_unique():

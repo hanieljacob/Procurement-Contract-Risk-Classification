@@ -16,15 +16,14 @@ Two principles run through all of them:
 ## 1. Time
 
 ### 1.1 The signing date is the assessment moment
-The brief asks for assessment *"at the time the contract was submitted"*. Submission precedes
+A contract should be assessed as of *submission*. Submission precedes
 signing — prior review happens before a contract is signed — so these are not the same moment.
 
 **We anchor on the signing date, because this extract has no submission date.** It is the only
 per-record time signal: `Fiscal Year` is exactly `year + (month >= 7)` of it, `Contract signed -
 Calendar year` is exactly its year (both verified derived), and `As of Date` holds one value across
 all 288,237 rows, so anchoring there would score every contract as of Aug 2026 — granting each record
-years of its own future. The brief itself uses the signing date as the proxy, describing
-days-into-fiscal-year as *"a proxy for submission timing within the fiscal cycle"*.
+years of its own future. Signing date is the standard proxy, and it is what days-into-fiscal-year measures — *"a proxy for submission timing within the fiscal cycle"*.
 
 **Cost.** The anchor is late by the submission-to-signature interval, so the point-in-time guarantee
 is mildly optimistic. Measured at a hypothetical 90-day lag:
@@ -256,10 +255,10 @@ because nothing in this data can establish which contracts are genuinely risky.
 
 | Threshold | Value | Basis |
 |---|---|---|
-| Amount extremity | 150× peer median | The brief's illustrative 5× flags 20.9% of the portfolio; 150× gives 1.80%, ~739/year. Configurable — the volume at every setting is in `config.py`. |
+| Amount extremity | 150× peer median | An illustrative 5× flags 20.9% of the portfolio; 150× gives 1.80%, ~739/year. Configurable — the volume at every setting is in `config.py`. |
 | Non-competitive high value | > $2M | Direct selection is lawful; it is the combination with scale that warrants a named reviewer. Absolute, because fiduciary exposure is absolute. |
 | First-in-project | > 20× median | Lower bar than the standalone rule, because being first is itself evidence. |
-| Model review threshold | 90% recall | The brief's asymmetry: missing a real one costs more than over-flagging. The price is flagging 40% of the portfolio at 7.3% precision, which is reported rather than hidden. |
+| Model review threshold | 90% recall | The asymmetry: missing a real one costs more than over-flagging. The price is flagging 40% of the portfolio at 7.3% precision, which is reported rather than hidden. |
 | Anomaly contamination | 1% | Isolation Forest has no natural threshold; calibrated on reviewer capacity. |
 
 ---
@@ -282,7 +281,7 @@ it. A generated sentence varying between runs would break the audit record and b
 accuracy.
 
 ### 8.3 No reason code claims a prior contract was "clean"
-The brief's example output includes `SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit
+An obvious code to emit would be `SUPPLIER_HAS_PRIOR_CLEAN_CONTRACTS`. We emit
 `SUPPLIER_HAS_PRIOR_CONTRACTS`. Nothing in this extract establishes that any contract was clean —
 only that contracts existed. Putting "clean" in an audit record asserts what the evidence cannot
 support.
